@@ -80,6 +80,8 @@ class TD3(DDPG):
 
         """
         a = self._target_actor_approximator(next_state, **self._actor_predict_params)
+        
+        a = a.detach().cpu().numpy() # TODO: Handle without casting to numpy
 
         low = self.mdp_info.action_space.low
         high = self.mdp_info.action_space.high
@@ -89,6 +91,7 @@ class TD3(DDPG):
 
         q = self._target_critic_approximator.predict(next_state, a_smoothed,
                                                      prediction='min', **self._critic_predict_params)
-        q *= 1 - absorbing
+        q = q.detach().cpu()
+        q *= (~absorbing)
 
         return q

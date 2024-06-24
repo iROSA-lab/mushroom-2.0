@@ -9,7 +9,7 @@ class MDPInfo(Serializable):
     This class is used to store the information of the environment.
 
     """
-    def __init__(self, observation_space, action_space, gamma, horizon, dt=1e-1, backend='numpy'):
+    def __init__(self, observation_space, action_space, gamma, horizon, dt=1e-1, backend='numpy', device=None):
         """
         Constructor.
 
@@ -20,6 +20,7 @@ class MDPInfo(Serializable):
              horizon (int): the horizon;
              dt (float, 1e-1): the control timestep of the environment;
              backend (str, 'numpy'): the type of data library used to generate state and actions.
+             device (str, None): the device used for the MDP/env.
 
         """
         self.observation_space = observation_space
@@ -28,6 +29,7 @@ class MDPInfo(Serializable):
         self.horizon = horizon
         self.dt = dt
         self.backend = backend
+        self.device = device
 
         self._add_save_attr(
             observation_space='mushroom',
@@ -35,7 +37,8 @@ class MDPInfo(Serializable):
             gamma='primitive',
             horizon='primitive',
             dt='primitive',
-            backend='primitive'
+            backend='primitive',
+            device='primitive'
         )
 
     @property

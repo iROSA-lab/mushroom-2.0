@@ -30,6 +30,7 @@ class DatasetInfo(Serializable):
 
         self._add_save_attr(
             backend='primitive',
+            device='primitive',
             gamma='primitive',
             horizon='primitive',
             state_shape='primitive',
@@ -55,6 +56,9 @@ class DatasetInfo(Serializable):
         action_dtype = mdp_info.action_space.data_type
         policy_state_shape = agent_info.policy_state_shape
 
+        if device is None:
+            device = mdp_info.device
+
         return DatasetInfo(backend, device, horizon, gamma, state_shape, state_dtype,
                            action_shape, action_dtype, policy_state_shape, n_envs)
 
@@ -68,6 +72,9 @@ class DatasetInfo(Serializable):
         action_shape = mdp_info.action_space.shape
         action_dtype = mdp_info.action_space.data_type  # FIXME: this may cause issues, needs fix
         policy_state_shape = agent_info.policy_state_shape
+
+        if device is None:
+            device = mdp_info.device
 
         return DatasetInfo(backend, device, horizon, gamma, state_shape, state_dtype,
                            action_shape, action_dtype, policy_state_shape)

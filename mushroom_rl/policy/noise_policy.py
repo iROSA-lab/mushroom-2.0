@@ -50,7 +50,7 @@ class OrnsteinUhlenbeckPolicy(ParametricPolicy):
 
     def draw_action(self, state, policy_state):
         with torch.no_grad():
-            mu = self._approximator.predict(state, **self._predict_params)
+            mu = self._approximator.predict(state, **self._predict_params).cpu()
             sqrt_dt = np.sqrt(self._dt)
 
             x = policy_state - self._theta * policy_state * self._dt +\

@@ -122,6 +122,8 @@ class ClippedGaussianPolicy(ParametricPolicy):
             mu = self._approximator.predict(state, **self._predict_params).cpu()
             # mu = np.reshape(self._approximator.predict(np.expand_dims(state, axis=0), **self._predict_params), -1)
 
+            mu = torch.tanh(mu) # squash actions to [-1, 1]
+
             distribution = torch.distributions.MultivariateNormal(loc=mu, scale_tril=self._chol_sigma,
                                                                   validate_args=False)
 

@@ -1,4 +1,5 @@
 import numpy as np
+import torch
 
 from mushroom_rl.algorithms.actor_critic.deep_actor_critic import DDPG
 from mushroom_rl.policy import Policy
@@ -62,6 +63,7 @@ class TD3(DDPG):
 
     def _loss(self, state):
         action = self._actor_approximator(state, **self._actor_predict_params)
+        action = torch.tanh(action) # squash action to [-1, 1]
         q = self._critic_approximator(state, action, idx=0, **self._critic_predict_params)
 
         return -q.mean()
@@ -81,6 +83,7 @@ class TD3(DDPG):
         """
         a = self._target_actor_approximator(next_state, **self._actor_predict_params)
         
+        a = torch.tanh(a) # squash action to [-1, 1]
         a = a.detach().cpu().numpy() # TODO: Handle without casting to numpy
 
         low = self.mdp_info.action_space.low

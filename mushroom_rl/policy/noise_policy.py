@@ -86,7 +86,7 @@ class ClippedGaussianPolicy(ParametricPolicy):
     Thus, the non-differentiability.
 
     """
-    def __init__(self, mu, sigma, low, high, policy_state_shape=None, draw_random_act=False):
+    def __init__(self, mu, sigma, low, high, policy_state_shape=None, draw_random_act=False, draw_deterministic=False):
         """
         Constructor.
 
@@ -97,6 +97,7 @@ class ClippedGaussianPolicy(ParametricPolicy):
             low (torch.tensor): a vector containing the minimum action for each component;
             high (torch.tensor): a vector containing the maximum action for each component.
             draw_random_act (bool, False): if True, the policy will draw random actions.
+            draw_deterministic (bool, False): if True, the policy will draw deterministic actions.
 
         """
         super().__init__(policy_state_shape)
@@ -107,6 +108,7 @@ class ClippedGaussianPolicy(ParametricPolicy):
         self._low = torch.as_tensor(low)
         self._high = torch.as_tensor(high)
         self._draw_random_act = draw_random_act
+        self._draw_deterministic = draw_deterministic
 
         self._add_save_attr(
             _approximator='mushroom',
@@ -114,7 +116,8 @@ class ClippedGaussianPolicy(ParametricPolicy):
             _chol_sigma='torch',
             _low='torch',
             _high='torch',
-            _draw_random_act='primitive'
+            _draw_random_act='primitive',
+            _draw_deterministic='primitive'
         )
 
     def __call__(self, state, action=None, policy_state=None):
@@ -124,6 +127,8 @@ class ClippedGaussianPolicy(ParametricPolicy):
         
         if self._draw_random_act is True:
             return self.draw_random_action()
+        elif self._draw_deterministic is True:
+            return self.draw_deterministic_action(state, policy_state)
         
         with torch.no_grad():
             mu = self._approximator.predict(state, **self._predict_params).cpu()
@@ -138,9 +143,19 @@ class ClippedGaussianPolicy(ParametricPolicy):
 
             return torch.clip(action_raw, self._low, self._high), None
 
+    
     def draw_random_action(self):
         return torch.rand(self._low.shape) * (self._high - self._low) + self._low, None
 
+    def draw_deterministic_action(self, state, policy_state=None):
+        with torch.no_grad():
+            mu = self._approximator.predict(state, **self._predict_params).cpu()
+            mu = torch.tanh(mu)
+
+            action_raw = mu
+
+        return torch.clip(action_raw, self._low, self._high), None
+    
     def set_weights(self, weights):
         self._approximator.set_weights(weights)
 

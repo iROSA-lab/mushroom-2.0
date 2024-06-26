@@ -86,7 +86,7 @@ class ClippedGaussianPolicy(ParametricPolicy):
     Thus, the non-differentiability.
 
     """
-    def __init__(self, mu, sigma, low, high, policy_state_shape=None):
+    def __init__(self, mu, sigma, low, high, policy_state_shape=None, draw_random_act=False):
         """
         Constructor.
 
@@ -96,6 +96,7 @@ class ClippedGaussianPolicy(ParametricPolicy):
                 matrix must be n x n, where n is the action dimensionality;
             low (torch.tensor): a vector containing the minimum action for each component;
             high (torch.tensor): a vector containing the maximum action for each component.
+            draw_random_act (bool, False): if True, the policy will draw random actions.
 
         """
         super().__init__(policy_state_shape)
@@ -105,19 +106,25 @@ class ClippedGaussianPolicy(ParametricPolicy):
         self._chol_sigma = torch.linalg.cholesky(sigma)
         self._low = torch.as_tensor(low)
         self._high = torch.as_tensor(high)
+        self._draw_random_act = draw_random_act
 
         self._add_save_attr(
             _approximator='mushroom',
             _predict_params='pickle',
             _chol_sigma='torch',
             _low='torch',
-            _high='torch'
+            _high='torch',
+            _draw_random_act='primitive'
         )
 
     def __call__(self, state, action=None, policy_state=None):
         raise NotImplementedError
 
     def draw_action(self, state, policy_state=None):
+        
+        if self._draw_random_act is True:
+            return self.draw_random_action()
+        
         with torch.no_grad():
             mu = self._approximator.predict(state, **self._predict_params).cpu()
             # mu = np.reshape(self._approximator.predict(np.expand_dims(state, axis=0), **self._predict_params), -1)
@@ -130,6 +137,9 @@ class ClippedGaussianPolicy(ParametricPolicy):
             action_raw = distribution.sample()
 
             return torch.clip(action_raw, self._low, self._high), None
+
+    def draw_random_action(self):
+        return torch.rand(self._low.shape) * (self._high - self._low) + self._low, None
 
     def set_weights(self, weights):
         self._approximator.set_weights(weights)

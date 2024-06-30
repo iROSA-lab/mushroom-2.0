@@ -74,6 +74,7 @@ class DDPG(DeepAC):
         self._tau = to_parameter(tau)
         self._policy_delay = to_parameter(policy_delay)
         self._fit_count = 0
+        self._actor_last_loss = None # Store actor loss for logging
 
         self._replay_memory = ReplayMemory(mdp_info, self.info, initial_replay_size, max_replay_size)
 
@@ -106,6 +107,7 @@ class DDPG(DeepAC):
             if self._fit_count % self._policy_delay() == 0:
                 loss = self._loss(state)
                 self._optimize_actor_parameters(loss)
+                self._actor_last_loss = loss.detach().cpu().numpy() # Store actor loss for logging
 
             self._update_target(self._critic_approximator, self._target_critic_approximator)
             self._update_target(self._actor_approximator, self._target_actor_approximator)

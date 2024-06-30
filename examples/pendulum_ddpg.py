@@ -8,7 +8,7 @@ import torch.nn.functional as F
 from mushroom_rl.algorithms.actor_critic import DDPG, TD3
 from mushroom_rl.core import Core, Logger
 from mushroom_rl.environments import Gymnasium
-from mushroom_rl.policy import OrnsteinUhlenbeckPolicy
+from mushroom_rl.policy import OrnsteinUhlenbeckPolicy, ClippedGaussianPolicy
 
 from tqdm import trange
 
@@ -79,8 +79,12 @@ def experiment(alg, n_epochs, n_steps, n_steps_test):
     mdp = Gymnasium('Pendulum-v1', horizon, gamma, headless=False)
 
     # Policy
-    policy_class = OrnsteinUhlenbeckPolicy
-    policy_params = dict(sigma=np.ones(1) * .2, theta=.15, dt=1e-2)
+    # policy_class = OrnsteinUhlenbeckPolicy
+    # policy_params = dict(sigma=np.ones(1) * .2, theta=.15, dt=1e-2)
+    policy_class = ClippedGaussianPolicy    
+    policy_params = dict(sigma=torch.eye(mdp.info.action_space.shape[0]) * .125,
+                         low = mdp.info.action_space.low,
+                         high = mdp.info.action_space.high)
 
     # Settings
     initial_replay_size = 500
@@ -140,7 +144,7 @@ def experiment(alg, n_epochs, n_steps, n_steps_test):
 
 
 if __name__ == '__main__':
-    algs = [DDPG, TD3]
+    algs = [TD3, DDPG]
 
     for alg in algs:
         experiment(alg=alg, n_epochs=40, n_steps=1000, n_steps_test=2000)

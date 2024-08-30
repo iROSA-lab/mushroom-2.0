@@ -86,7 +86,8 @@ class ClippedGaussianPolicy(ParametricPolicy):
     Thus, the non-differentiability.
 
     """
-    def __init__(self, mu, sigma, low, high, policy_state_shape=None, draw_random_act=False, draw_deterministic=False):
+    def __init__(self, mu, sigma, low, high, policy_state_shape=None, 
+                 draw_random_act=False, draw_deterministic=False, squash_actions=False):
         """
         Constructor.
 
@@ -109,6 +110,7 @@ class ClippedGaussianPolicy(ParametricPolicy):
         self._high = torch.as_tensor(high)
         self._draw_random_act = draw_random_act
         self._draw_deterministic = draw_deterministic
+        self._squash_actions = squash_actions
 
         self._add_save_attr(
             _approximator='mushroom',
@@ -117,7 +119,8 @@ class ClippedGaussianPolicy(ParametricPolicy):
             _low='torch',
             _high='torch',
             _draw_random_act='primitive',
-            _draw_deterministic='primitive'
+            _draw_deterministic='primitive',
+            _squash_actions='primitive'
         )
 
     def __call__(self, state, action=None, policy_state=None):
@@ -133,8 +136,8 @@ class ClippedGaussianPolicy(ParametricPolicy):
         with torch.no_grad():
             mu = self._approximator.predict(state, **self._predict_params).cpu()
             # mu = np.reshape(self._approximator.predict(np.expand_dims(state, axis=0), **self._predict_params), -1)
-
-            mu = torch.tanh(mu) # squash actions to [-1, 1]
+            if self._squash_actions:
+                mu = torch.tanh(mu) # squash actions to [-1, 1]
 
             distribution = torch.distributions.MultivariateNormal(loc=mu, scale_tril=self._chol_sigma,
                                                                   validate_args=False)

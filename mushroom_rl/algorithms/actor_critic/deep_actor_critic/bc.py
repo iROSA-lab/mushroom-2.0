@@ -21,7 +21,7 @@ class BC(DeepAC):
     """
     def __init__(self, mdp_info, policy_class, policy_params,
                  actor_params, actor_optimizer, critic_params=None,
-                 batch_size=1, n_epochs_policy=1, patience=1,
+                 batch_size=1, n_epochs_policy=1, patience=1, squash_actions=False,
                  critic_fit_params=None, actor_predict_params=None, critic_predict_params=None):
         """
         Constructor.
@@ -38,6 +38,7 @@ class BC(DeepAC):
             n_epochs_policy ([int, Parameter]): number of policy update epochs on the whole dataset at every call;
             patience (float, 1.): (Optional) the number of epochs to wait until stop
                 the learning if not improving;
+            squash_actions (bool, True): (Optional) whether to squash the actions to [-1, 1] with tanh;
             critic_fit_params (dict, None): Unused parameter; Left for future
             actor_predict_params (dict, None): Unused parameter; Left for future
             critic_predict_params (dict, None): Unused parameter; Left for future
@@ -57,6 +58,7 @@ class BC(DeepAC):
         self._batch_size = to_parameter(batch_size)
         self._n_epochs_policy = to_parameter(n_epochs_policy)
         self._patience = to_parameter(patience)
+        self._squash_actions = squash_actions
 
         self._bc_loss_fn = torch.nn.MSELoss()
         self._fit_count = 0
@@ -66,6 +68,7 @@ class BC(DeepAC):
             _batch_size='mushroom',
             _n_epochs_policy='mushroom',
             _patience='mushroom',
+            _squash_actions='primitive',
             _actor_approximator='mushroom',
             _fit_count='primitive',
         )
@@ -96,6 +99,9 @@ class BC(DeepAC):
 
         # TODO: Handle hybrid policy
         act_pred = self._actor_approximator(obs, **self._actor_predict_params)
+        if self._squash_actions:
+            # Squash the actions to [-1, 1] (Needed if RL policy squashes actions)
+            act_pred = torch.tanh(act_pred)
 
         return self._bc_loss_fn(act_pred, act) # normally mse loss
         

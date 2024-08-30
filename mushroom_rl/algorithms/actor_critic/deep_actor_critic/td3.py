@@ -16,7 +16,7 @@ class TD3(DDPG):
     def __init__(self, mdp_info, policy_class, policy_params, actor_params,
                  actor_optimizer, critic_params, batch_size,
                  initial_replay_size, max_replay_size, tau, policy_delay=2,
-                 noise_std=.2, noise_clip=.5, critic_fit_params=None):
+                 noise_std=.2, noise_clip=.5, squash_actions=False, critic_fit_params=None):
         """
         Constructor.
 
@@ -41,12 +41,14 @@ class TD3(DDPG):
                 policy smoothing;
             noise_clip ([float, Parameter], .5): maximum absolute value for policy smoothing
                 noise;
+            squash_actions (bool, False): whether to squash the actions to [-1, 1] with tanh;
             critic_fit_params (dict, None): parameters of the fitting algorithm
                 of the critic approximator.
 
         """
         self._noise_std = to_parameter(noise_std)
         self._noise_clip = to_parameter(noise_clip)
+        self._squash_actions = squash_actions
 
         if 'n_models' in critic_params.keys():
             assert(critic_params['n_models'] >= 2)
@@ -58,12 +60,14 @@ class TD3(DDPG):
 
         self._add_save_attr(
             _noise_std='mushroom',
-            _noise_clip='mushroom'
+            _noise_clip='mushroom',
+            _squash_actions='primitive'
         )
 
     def _loss(self, state):
         action = self._actor_approximator(state, **self._actor_predict_params)
-        action = torch.tanh(action) # squash action to [-1, 1]
+        if self._squash_actions:
+            action = torch.tanh(action) # squash action to [-1, 1]
         q = self._critic_approximator(state, action, idx=0, **self._critic_predict_params)
 
         return -q.mean()
@@ -82,8 +86,8 @@ class TD3(DDPG):
 
         """
         a = self._target_actor_approximator(next_state, **self._actor_predict_params)
-        
-        a = torch.tanh(a) # squash action to [-1, 1]
+        if self._squash_actions:
+            a = torch.tanh(a) # squash action to [-1, 1]
         a = a.detach().cpu().numpy() # TODO: Handle without casting to numpy
 
         low = self.mdp_info.action_space.low

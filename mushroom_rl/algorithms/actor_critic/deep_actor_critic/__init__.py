@@ -7,3 +7,4 @@ from .trpo import TRPO
 from .ppo import PPO
 from .ppo_bptt import PPO_BPTT
 from .bc import BC
+from .td3_bc import TD3_BC

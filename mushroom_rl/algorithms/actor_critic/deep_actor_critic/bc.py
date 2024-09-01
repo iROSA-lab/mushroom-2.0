@@ -79,7 +79,7 @@ class BC(DeepAC):
         
         # fit on the dataset (for n_epochs)
         for epoch in trange(n_epochs):
-            for obs, act in minibatch_generator(self._batch_size(), demo_dataset['obs'], demo_dataset['action']):                        
+            for obs, act in minibatch_generator(self._batch_size(), demo_dataset['obs'], demo_dataset['action']):
                 loss = self._loss(obs, act)
                 self._optimize_actor_parameters(loss)
 

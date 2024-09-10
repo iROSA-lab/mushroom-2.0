@@ -138,11 +138,18 @@ class IQL(DeepAC):
             _iql_tau='mushroom',
         )
     
-    def load_dataset(self, dataset):
-        # load & create mushroom dataset
-        self.offline_dataset = Dataset.from_array(dataset['obs'], dataset['action'], dataset['reward'],
-                                                  dataset['next_obs'], dataset['absorbing'], dataset['last'],
-                                                  backend='torch')
+    def load_dataset(self, datasets):
+        # there can be more than one dataset so loop over the list
+        for dataset in datasets:
+            # load & create mushroom dataset
+            mushroom_dataset = Dataset.from_array(dataset['obs'], dataset['action'], dataset['reward'],
+                                                    dataset['next_obs'], dataset['absorbing'], dataset['last'],
+                                                    backend='torch')
+            if self.offline_dataset is None:
+                self.offline_dataset = mushroom_dataset
+            else:
+                self.offline_dataset += mushroom_dataset
+            
         # copy it over to the replay buffer
         self._replay_memory._initial_size = len(self.offline_dataset) # set initial size to the size of the offline dataset
         if self._replay_memory._max_size < len(self.offline_dataset):
@@ -151,7 +158,7 @@ class IQL(DeepAC):
         self._replay_memory.add(self.offline_dataset)
 
         if self._normalize_states:
-            self._compute_states_mean_std(dataset['obs'])
+            self._compute_states_mean_std(self.offline_dataset.state)
     
     def offline_fit(self, n_epochs):
         if self.offline_dataset is None:

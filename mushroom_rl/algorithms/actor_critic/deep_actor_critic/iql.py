@@ -154,7 +154,7 @@ class IQL(DeepAC):
         self._replay_memory._initial_size = len(self.offline_dataset) # set initial size to the size of the offline dataset
         if self._replay_memory._max_size < len(self.offline_dataset):
             print('[[Warning: Offline dataset size exceeds max replay memory size. Resizing replay memory to fit dataset.]]')
-            self._replay_memory._max_size = len(self.offline_dataset)
+            self._replay_memory = ReplayMemory(self.mdp_info, self.info, initial_size=len(self.offline_dataset), max_size=len(self.offline_dataset))
         self._replay_memory.add(self.offline_dataset)
 
         if self._normalize_states:
@@ -246,7 +246,7 @@ class IQL(DeepAC):
             self._actor_lr_scheduler.step()
 
         self._actor_last_loss = actor_loss.detach().cpu().numpy() # Store actor loss for logging
-        self._last_exp_adv = exp_adv.detach().cpu().numpy() # Store exp_adv for logging
+        self._last_exp_adv = exp_adv.detach().mean().cpu().numpy() # Store exp_adv for logging
 
     def _asymmetric_l2_loss(self, u: torch.Tensor, tau: float):
         # loss is just L2 when u is positive, but (1 - tau) * L2 when u is negative.

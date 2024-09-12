@@ -10,6 +10,7 @@ from mushroom_rl.rl_utils.parameters import Parameter, to_parameter
 from mushroom_rl.utils.torch import TorchUtils
 from tqdm import trange
 
+from torch.nn.functional import binary_cross_entropy_with_logits
 
 class BC(DeepAC):
     """
@@ -22,6 +23,7 @@ class BC(DeepAC):
     def __init__(self, mdp_info, policy_class, policy_params,
                  actor_params, actor_optimizer, critic_params=None,
                  batch_size=1, n_epochs_policy=1, patience=1, squash_actions=False,
+                 discrete_action_dims=0, continuous_action_dims=0,
                  critic_fit_params=None, actor_predict_params=None, critic_predict_params=None):
         """
         Constructor.
@@ -39,6 +41,8 @@ class BC(DeepAC):
             patience (float, 1.): (Optional) the number of epochs to wait until stop
                 the learning if not improving;
             squash_actions (bool, True): (Optional) whether to squash the actions to [-1, 1] with tanh;
+            discrete_action_dims (int, 0): number of discrete actions in the action space;
+            continuous_action_dims (int, 0): number of continuous actions in the action space;
             critic_fit_params (dict, None): Unused parameter; Left for future
             actor_predict_params (dict, None): Unused parameter; Left for future
             critic_predict_params (dict, None): Unused parameter; Left for future
@@ -59,8 +63,9 @@ class BC(DeepAC):
         self._n_epochs_policy = to_parameter(n_epochs_policy)
         self._patience = to_parameter(patience)
         self._squash_actions = squash_actions
+        self._discrete_action_dims = discrete_action_dims
+        self._continuous_action_dims = continuous_action_dims
 
-        self._bc_loss_fn = torch.nn.MSELoss()
         self._fit_count = 0
         self._actor_last_loss = None # Store actor loss for logging
 
@@ -69,6 +74,8 @@ class BC(DeepAC):
             _n_epochs_policy='mushroom',
             _patience='mushroom',
             _squash_actions='primitive',
+            _discrete_action_dims='primitive',
+            _continuous_action_dims='primitive',
             _actor_approximator='mushroom',
             _fit_count='primitive',
         )
@@ -100,10 +107,20 @@ class BC(DeepAC):
         # TODO: Handle hybrid policy
         act_pred = self._actor_approximator(obs, **self._actor_predict_params)
         if self._squash_actions:
-            # Squash the actions to [-1, 1] (Needed if RL policy squashes actions)
-            act_pred = torch.tanh(act_pred)
+            # Squash the continuous actions to [-1, 1] (Needed if RL policy squashes actions)
+            act_pred[:, -self._continuous_action_dims:] = torch.tanh(act_pred[:, -self._continuous_action_dims:])
 
-        return self._bc_loss_fn(act_pred, act) # normally mse loss
+        bc_loss = torch.zeros(1, device=TorchUtils.get_device())
+        if self._discrete_action_dims > 0:
+            # ensure targets are binary
+            act[:,:self._discrete_action_dims] = (act[:,:self._discrete_action_dims] > 0.5).float()
+            # treating discrete actions as logits. Use binary cross entropy loss
+            bc_loss += binary_cross_entropy_with_logits(act_pred[:, :self._discrete_action_dims], act[:, :self._discrete_action_dims])
+        if self._continuous_action_dims > 0:
+            # Use mse loss for continuous actions
+            bc_loss += torch.sum((act_pred[:, -self._continuous_action_dims:] - act[:, -self._continuous_action_dims:])**2)
+
+        return bc_loss
         
 
     def _post_load(self):

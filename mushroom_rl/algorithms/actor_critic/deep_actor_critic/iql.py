@@ -13,18 +13,22 @@ from mushroom_rl.utils.torch import TorchUtils
 from tqdm import trange
 from copy import deepcopy
 
+from torch.nn.functional import binary_cross_entropy_with_logits
+
 class IQL(DeepAC):
     """
     IQL Offline-to-Online RL algorithm.
     "Offline Reinforcement Learning with Implicit Q-Learning".
     Kostrikov I. et al.. 2022.
-    Reference implementation: https://github.com/corl-team/CORL
+    Reference implementation: https://github.com/corl-team/CORL.
+    Modified to also supports hybrid policies (both discrete and continuous actions).
 
     """
     def __init__(self, mdp_info, policy_class, policy_params, actor_params,
                  actor_optimizer, critic_params, value_func_params, value_func_optimizer, 
                  batch_size, initial_replay_size, max_replay_size, tau,
-                 squash_actions=False, normalize_states=False, schedule_actor_lr=False,
+                 squash_actions=False, discrete_action_dims=0, continuous_action_dims=0,
+                 normalize_states=False, schedule_actor_lr=False,
                  iql_beta=1.0, iql_tau=0.7, max_clamp_adv=100.0,
                  critic_fit_params=None, actor_predict_params=None, critic_predict_params=None):
         """
@@ -49,6 +53,8 @@ class IQL(DeepAC):
                 memory;
             tau ([float, Parameter]): value of coefficient for soft updates;
             squash_actions (bool, False): whether to squash the actions to [-1, 1] with tanh;
+            discrete_action_dims (int, 0): number of discrete actions in the action space;
+            continuous_action_dims (int, 0): number of continuous actions in the action space;
             normalize_states (bool, False): whether to normalize states;
             schedule_actor_lr (bool, False): whether to use a learning rate scheduler for the actor;
             iql_beta ([float, Parameter], 0.25): Inverse temperature. Small beta -> BC, big beta -> maximizing Q; when fitting on the offline dataset;
@@ -101,6 +107,8 @@ class IQL(DeepAC):
         self._replay_memory = ReplayMemory(mdp_info, self.info, initial_replay_size, max_replay_size)
 
         self._squash_actions = squash_actions
+        self._discrete_action_dims = discrete_action_dims
+        self._continuous_action_dims = continuous_action_dims
         self._normalize_states = normalize_states
         self._states_mean = None
         self._states_std = None
@@ -130,6 +138,8 @@ class IQL(DeepAC):
             _value_func_optimizer='torch',
             _actor_approximator='mushroom',
             _squash_actions='primitive',
+            _discrete_action_dims='primitive',
+            _continuous_action_dims='primitive',
             _normalize_states='primitive',
             _states_mean='primitive',
             _states_std='primitive',
@@ -231,14 +241,19 @@ class IQL(DeepAC):
         # target action from data:
         act = torch.as_tensor(action, dtype=torch.float32, device=TorchUtils.get_device())
         act_pred = self._actor_approximator(state, **self._actor_predict_params)
-        # TODO: Handle hybrid policy
         if self._squash_actions:
-            # Squash the actions to [-1, 1] (Needed if RL policy squashes actions)
-            act_pred = torch.tanh(act_pred)
+            # Squash the continuous actions to [-1, 1] (Needed if RL policy squashes actions)
+            act_pred[:, -self._continuous_action_dims:] = torch.tanh(act_pred[:, -self._continuous_action_dims:])
         
-        # if actions are probablity distribution for categorical
-        #   bc_losses = -act_pred.log_prob(actions).sum(-1, keepdim=False)
-        bc_loss = torch.sum((act_pred - act) ** 2, dim=1)
+        bc_loss = torch.zeros(act.shape[0], device=TorchUtils.get_device())
+        if self._discrete_action_dims > 0:
+            # ensure targets are binary
+            act[:,:self._discrete_action_dims] = (act[:,:self._discrete_action_dims] > 0.5).float()
+            # treating discrete actions as logits. Use binary cross entropy loss
+            bc_loss += binary_cross_entropy_with_logits(act_pred[:, :self._discrete_action_dims], act[:, :self._discrete_action_dims], reduction='none').sum(1)
+        if self._continuous_action_dims > 0:
+            # Use mse loss for continuous actions
+            bc_loss += torch.sum((act_pred[:, -self._continuous_action_dims:] - act[:, -self._continuous_action_dims:])**2, dim=1)
         actor_loss = torch.mean(exp_adv * bc_loss)
 
         self._optimize_actor_parameters(actor_loss)

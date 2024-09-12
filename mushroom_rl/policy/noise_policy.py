@@ -88,7 +88,8 @@ class ClippedGaussianPolicy(ParametricPolicy):
     """
     def __init__(self, mu, sigma, low, high, policy_state_shape=None, 
                  draw_random_act=False, draw_deterministic=False,
-                 squash_actions=False, normalize_states=False):
+                 squash_actions=False, discrete_action_dims=0, continuous_action_dims=0,
+                 normalize_states=False):
         """
         Constructor.
 
@@ -101,6 +102,8 @@ class ClippedGaussianPolicy(ParametricPolicy):
             draw_random_act (bool, False): if True, the policy will draw random actions.
             draw_deterministic (bool, False): if True, the policy will draw deterministic actions.
             squash_actions (bool, False): if True, the actions will be squashed to [-1, 1] with a tanh function.
+            discrete_action_dims (int, 0): the number of discrete actions in the action space.
+            continuous_action_dims (int, 0): the number of continuous actions in the action space.
             normalize_states (bool, False): if True, the states will be normalized before being passed to the regressor.
 
         """
@@ -114,6 +117,8 @@ class ClippedGaussianPolicy(ParametricPolicy):
         self._draw_random_act = draw_random_act
         self._draw_deterministic = draw_deterministic
         self._squash_actions = squash_actions
+        self._discrete_action_dims = discrete_action_dims
+        self._continuous_action_dims = continuous_action_dims
         self._normalize_states = normalize_states
         self._states_mean = None # will be set by the agent class
         self._states_std = None # will be set by the agent class
@@ -127,6 +132,8 @@ class ClippedGaussianPolicy(ParametricPolicy):
             _draw_random_act='primitive',
             _draw_deterministic='primitive',
             _squash_actions='primitive',
+            _discrete_action_dims='primitive',
+            _continuous_action_dims='primitive',
             _normalize_states='primitive',
             _states_mean='primitive',
             _states_std='primitive',
@@ -151,14 +158,20 @@ class ClippedGaussianPolicy(ParametricPolicy):
             mu = self._approximator.predict(state, **self._predict_params).cpu()
             # mu = np.reshape(self._approximator.predict(np.expand_dims(state, axis=0), **self._predict_params), -1)
             if self._squash_actions:
-                mu = torch.tanh(mu) # squash actions to [-1, 1]
+                # Squash the continuous actions to [-1, 1]
+                mu[-self._continuous_action_dims:] = torch.tanh(mu[-self._continuous_action_dims:])
 
-            distribution = torch.distributions.MultivariateNormal(loc=mu, scale_tril=self._chol_sigma,
+            # sample continuous actions from distribution
+            distribution = torch.distributions.MultivariateNormal(loc=mu[-self._continuous_action_dims:], scale_tril=self._chol_sigma,
                                                                   validate_args=False)
-
             action_raw = distribution.sample()
 
-            return torch.clip(action_raw, self._low, self._high), None
+            if self._discrete_action_dims > 0:
+                # discrete actions from network are logits, so sigmoid them
+                action_disc = torch.sigmoid(mu[:self._discrete_action_dims])
+                action = torch.cat((action_disc, action_raw), dim=0)
+
+            return torch.clip(action, self._low, self._high), None
 
     
     def draw_random_action(self):
@@ -166,12 +179,26 @@ class ClippedGaussianPolicy(ParametricPolicy):
 
     def draw_deterministic_action(self, state, policy_state=None):
         with torch.no_grad():
+            if self._normalize_states:
+                if self._states_mean is None:
+                    raise ValueError('States mean is not set by the agent class')
+                state = (state - self._states_mean) / self._states_std
+        
             mu = self._approximator.predict(state, **self._predict_params).cpu()
-            mu = torch.tanh(mu)
+            # mu = np.reshape(self._approximator.predict(np.expand_dims(state, axis=0), **self._predict_params), -1)
+            
+            if self._squash_actions:
+                # Squash the continuous actions to [-1, 1]
+                mu[-self._continuous_action_dims:] = torch.tanh(mu[-self._continuous_action_dims:])
 
-            action_raw = mu
+            action_raw = mu[-self._continuous_action_dims:]
 
-        return torch.clip(action_raw, self._low, self._high), None
+            if self._discrete_action_dims > 0:
+                # discrete actions from network are logits, so sigmoid them
+                action_disc = torch.sigmoid(mu[:self._discrete_action_dims])
+                action = torch.cat((action_disc, action_raw), dim=0)
+
+            return torch.clip(action, self._low, self._high), None
     
     def set_weights(self, weights):
         self._approximator.set_weights(weights)

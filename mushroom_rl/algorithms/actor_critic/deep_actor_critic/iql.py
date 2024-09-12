@@ -102,9 +102,8 @@ class IQL(DeepAC):
 
         self._squash_actions = squash_actions
         self._normalize_states = normalize_states
-        if self._normalize_states:
-            self.states_mean = None
-            self.states_std = None
+        self._states_mean = None
+        self._states_std = None
         self._schedule_actor_lr = schedule_actor_lr
         if self._schedule_actor_lr:
             max_steps = (max_replay_size * 100) // batch_size # heuristic. TODO: test
@@ -132,6 +131,8 @@ class IQL(DeepAC):
             _actor_approximator='mushroom',
             _squash_actions='primitive',
             _normalize_states='primitive',
+            _states_mean='primitive',
+            _states_std='primitive',
             _schedule_actor_lr='primitive',
             _actor_lr_scheduler='torch',
             _iql_beta='mushroom',
@@ -254,13 +255,17 @@ class IQL(DeepAC):
         return torch.mean(torch.abs(tau - (u < 0).float()) * u**2)
 
     def _compute_states_mean_std(self, states: np.ndarray, eps: float = 1e-3):
-        self.states_mean = states.mean(0)
-        self.states_std = states.std(0) + eps
+        self._states_mean = states.mean(0)
+        self._states_std = states.std(0) + eps
+
+        # set them for the policy as well so that we use it when drawing actions
+        self.policy._states_mean = self._states_mean
+        self.policy._states_std = self._states_std
 
     def _norm_states(self, states: np.ndarray):
-        if self.states_mean is None or self.states_std is None:
+        if self._states_mean is None or self._states_std is None:
             raise ValueError('States mean and std not computed yet. Call _compute_states_mean_std() on the dataset first.')
-        return (states - self.states_mean) / self.states_std
+        return (states - self._states_mean) / self._states_std
 
     def _post_load(self):
         self._actor_approximator = self.policy._approximator

@@ -87,7 +87,8 @@ class ClippedGaussianPolicy(ParametricPolicy):
 
     """
     def __init__(self, mu, sigma, low, high, policy_state_shape=None, 
-                 draw_random_act=False, draw_deterministic=False, squash_actions=False):
+                 draw_random_act=False, draw_deterministic=False,
+                 squash_actions=False, normalize_states=False):
         """
         Constructor.
 
@@ -99,6 +100,8 @@ class ClippedGaussianPolicy(ParametricPolicy):
             high (torch.tensor): a vector containing the maximum action for each component.
             draw_random_act (bool, False): if True, the policy will draw random actions.
             draw_deterministic (bool, False): if True, the policy will draw deterministic actions.
+            squash_actions (bool, False): if True, the actions will be squashed to [-1, 1] with a tanh function.
+            normalize_states (bool, False): if True, the states will be normalized before being passed to the regressor.
 
         """
         super().__init__(policy_state_shape)
@@ -111,6 +114,9 @@ class ClippedGaussianPolicy(ParametricPolicy):
         self._draw_random_act = draw_random_act
         self._draw_deterministic = draw_deterministic
         self._squash_actions = squash_actions
+        self._normalize_states = normalize_states
+        self._states_mean = None # will be set by the agent class
+        self._states_std = None # will be set by the agent class
 
         self._add_save_attr(
             _approximator='mushroom',
@@ -120,7 +126,10 @@ class ClippedGaussianPolicy(ParametricPolicy):
             _high='torch',
             _draw_random_act='primitive',
             _draw_deterministic='primitive',
-            _squash_actions='primitive'
+            _squash_actions='primitive',
+            _normalize_states='primitive',
+            _states_mean='primitive',
+            _states_std='primitive',
         )
 
     def __call__(self, state, action=None, policy_state=None):
@@ -134,6 +143,11 @@ class ClippedGaussianPolicy(ParametricPolicy):
             return self.draw_deterministic_action(state, policy_state)
         
         with torch.no_grad():
+            if self._normalize_states:
+                if self._states_mean is None:
+                    raise ValueError('States mean is not set by the agent class')
+                state = (state - self._states_mean) / self._states_std
+                
             mu = self._approximator.predict(state, **self._predict_params).cpu()
             # mu = np.reshape(self._approximator.predict(np.expand_dims(state, axis=0), **self._predict_params), -1)
             if self._squash_actions:

@@ -103,22 +103,25 @@ class BC(DeepAC):
         # if isinstance(obs, np.ndarray):
         #     obs = torch.as_tensor(obs, dtype=torch.float32)
         act = torch.as_tensor(act, dtype=torch.float32, device=TorchUtils.get_device())
+        act_disc = act[:, :self._discrete_action_dims]
+        act_cont = act[:, -self._continuous_action_dims:]
 
-        # TODO: Handle hybrid policy
         act_pred = self._actor_approximator(obs, **self._actor_predict_params)
+        act_pred_disc = act_pred[:, :self._discrete_action_dims]
+        act_pred_cont = act_pred[:, -self._continuous_action_dims:]
         if self._squash_actions:
             # Squash the continuous actions to [-1, 1] (Needed if RL policy squashes actions)
-            act_pred[:, -self._continuous_action_dims:] = torch.tanh(act_pred[:, -self._continuous_action_dims:])
+            act_pred_cont = torch.tanh(act_pred_cont)
 
         bc_loss = torch.zeros(1, device=TorchUtils.get_device())
         if self._discrete_action_dims > 0:
             # ensure targets are binary
-            act[:,:self._discrete_action_dims] = (act[:,:self._discrete_action_dims] > 0.5).float()
+            act_disc = (act_disc > 0.5).float()
             # treating discrete actions as logits. Use binary cross entropy loss
-            bc_loss += binary_cross_entropy_with_logits(act_pred[:, :self._discrete_action_dims], act[:, :self._discrete_action_dims])
+            bc_loss += binary_cross_entropy_with_logits(act_pred_disc, act_disc)
         if self._continuous_action_dims > 0:
             # Use mse loss for continuous actions
-            bc_loss += torch.sum((act_pred[:, -self._continuous_action_dims:] - act[:, -self._continuous_action_dims:])**2)
+            bc_loss += torch.mean((act_pred_cont - act_cont)**2)
 
         return bc_loss
         

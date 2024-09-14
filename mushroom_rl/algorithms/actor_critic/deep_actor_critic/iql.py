@@ -240,20 +240,25 @@ class IQL(DeepAC):
         
         # target action from data:
         act = torch.as_tensor(action, dtype=torch.float32, device=TorchUtils.get_device())
+        act_disc = act[:, :self._discrete_action_dims]
+        act_cont = act[:, -self._continuous_action_dims:]
+
         act_pred = self._actor_approximator(state, **self._actor_predict_params)
+        act_pred_disc = act_pred[:, :self._discrete_action_dims]
+        act_pred_cont = act_pred[:, -self._continuous_action_dims:]
         if self._squash_actions:
             # Squash the continuous actions to [-1, 1] (Needed if RL policy squashes actions)
-            act_pred[:, -self._continuous_action_dims:] = torch.tanh(act_pred[:, -self._continuous_action_dims:])
+            act_pred_cont = torch.tanh(act_pred_cont)
         
         bc_loss = torch.zeros(act.shape[0], device=TorchUtils.get_device())
         if self._discrete_action_dims > 0:
             # ensure targets are binary
-            act[:,:self._discrete_action_dims] = (act[:,:self._discrete_action_dims] > 0.5).float()
+            act_disc = (act_disc > 0.5).float()
             # treating discrete actions as logits. Use binary cross entropy loss
-            bc_loss += binary_cross_entropy_with_logits(act_pred[:, :self._discrete_action_dims], act[:, :self._discrete_action_dims], reduction='none').sum(1)
+            bc_loss += binary_cross_entropy_with_logits(act_pred_disc, act_disc, reduction='none').sum(1)
         if self._continuous_action_dims > 0:
             # Use mse loss for continuous actions
-            bc_loss += torch.sum((act_pred[:, -self._continuous_action_dims:] - act[:, -self._continuous_action_dims:])**2, dim=1)
+            bc_loss += torch.sum((act_pred_cont - act_cont)**2, dim=1)
         actor_loss = torch.mean(exp_adv * bc_loss)
 
         self._optimize_actor_parameters(actor_loss)

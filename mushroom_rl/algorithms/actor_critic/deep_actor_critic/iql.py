@@ -13,7 +13,7 @@ from mushroom_rl.utils.torch import TorchUtils
 from tqdm import trange
 from copy import deepcopy
 
-from torch.nn.functional import binary_cross_entropy_with_logits
+# from torch.nn.functional import binary_cross_entropy_with_logits
 
 class IQL(DeepAC):
     """
@@ -255,10 +255,13 @@ class IQL(DeepAC):
             # ensure targets are binary
             act_disc = (act_disc > 0.5).float()
             # treating discrete actions as logits. Use binary cross entropy loss
-            bc_loss += binary_cross_entropy_with_logits(act_pred_disc, act_disc, reduction='none').sum(1)
+            act_pred_disc = torch.sigmoid(act_pred_disc)
+            # bc_loss += binary_cross_entropy_with_logits(act_pred_disc, act_disc)
+            # TEMP: Scale by self._discrete_action_dims
+            bc_loss += self._discrete_action_dims*(-act_disc * torch.log(act_pred_disc + 1e-8) - (1 - act_disc) * torch.log(1 - act_pred_disc + 1e-8)).mean(1)
         if self._continuous_action_dims > 0:
             # Use mse loss for continuous actions
-            bc_loss += torch.sum((act_pred_cont - act_cont)**2, dim=1)
+            bc_loss += torch.mean((act_pred_cont - act_cont)**2, dim=1)
         actor_loss = torch.mean(exp_adv * bc_loss)
 
         self._optimize_actor_parameters(actor_loss)

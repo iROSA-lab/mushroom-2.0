@@ -113,7 +113,7 @@ class BC(DeepAC):
             # Squash the continuous actions to [-1, 1] (Needed if RL policy squashes actions)
             act_pred_cont = torch.tanh(act_pred_cont)
 
-        bc_loss = torch.zeros(1, device=TorchUtils.get_device())
+        bc_loss = torch.zeros(1, device=TorchUtils.get_device(), requires_grad=True)
         if self._discrete_action_dims > 0:
             # ensure targets are binary
             act_disc = (act_disc > 0.5).float()

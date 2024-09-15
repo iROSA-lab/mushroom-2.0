@@ -170,6 +170,8 @@ class ClippedGaussianPolicy(ParametricPolicy):
                 # discrete actions from network are logits, so sigmoid them
                 action_disc = torch.sigmoid(mu[:self._discrete_action_dims])
                 action = torch.cat((action_disc, action_raw), dim=0)
+            else:
+                action = action_raw
 
             return torch.clip(action, self._low, self._high), None
 
@@ -197,6 +199,8 @@ class ClippedGaussianPolicy(ParametricPolicy):
                 # discrete actions from network are logits, so sigmoid them
                 action_disc = torch.sigmoid(mu[:self._discrete_action_dims])
                 action = torch.cat((action_disc, action_raw), dim=0)
+            else:
+                action = action_raw
 
             return torch.clip(action, self._low, self._high), None
     

@@ -153,10 +153,12 @@ class ClippedGaussianPolicy(ParametricPolicy):
             if self._normalize_states:
                 if self._states_mean is None:
                     raise ValueError('States mean is not set by the agent class')
-                state = (state - self._states_mean) / self._states_std
+                state_query = (state - self._states_mean) / self._states_std
+            else:
+                state_query = state
                 
-            mu = self._approximator.predict(state, **self._predict_params).cpu()
-            # mu = np.reshape(self._approximator.predict(np.expand_dims(state, axis=0), **self._predict_params), -1)
+            mu = self._approximator.predict(state_query, **self._predict_params).cpu()
+            # mu = np.reshape(self._approximator.predict(np.expand_dims(state_query, axis=0), **self._predict_params), -1)
             if self._squash_actions:
                 # Squash the continuous actions to [-1, 1]
                 mu[-self._continuous_action_dims:] = torch.tanh(mu[-self._continuous_action_dims:])
@@ -170,6 +172,7 @@ class ClippedGaussianPolicy(ParametricPolicy):
                 # discrete actions from network are logits, so sigmoid them
                 action_disc = torch.sigmoid(mu[:self._discrete_action_dims])
                 action = torch.cat((action_disc, action_raw), dim=0)
+                # print("action: ", torch.round(action*100)/100)
             else:
                 action = action_raw
 
@@ -184,10 +187,12 @@ class ClippedGaussianPolicy(ParametricPolicy):
             if self._normalize_states:
                 if self._states_mean is None:
                     raise ValueError('States mean is not set by the agent class')
-                state = (state - self._states_mean) / self._states_std
+                state_query = (state - self._states_mean) / self._states_std
+            else:
+                state_query = state
         
-            mu = self._approximator.predict(state, **self._predict_params).cpu()
-            # mu = np.reshape(self._approximator.predict(np.expand_dims(state, axis=0), **self._predict_params), -1)
+            mu = self._approximator.predict(state_query, **self._predict_params).cpu()
+            # mu = np.reshape(self._approximator.predict(np.expand_dims(state_query, axis=0), **self._predict_params), -1)
             
             if self._squash_actions:
                 # Squash the continuous actions to [-1, 1]
@@ -199,6 +204,7 @@ class ClippedGaussianPolicy(ParametricPolicy):
                 # discrete actions from network are logits, so sigmoid them
                 action_disc = torch.sigmoid(mu[:self._discrete_action_dims])
                 action = torch.cat((action_disc, action_raw), dim=0)
+                # print("action: ", torch.round(action*100)/100)
             else:
                 action = action_raw
 

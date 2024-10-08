@@ -123,6 +123,12 @@ class ClippedGaussianPolicy(ParametricPolicy):
         self._states_mean = None # will be set by the agent class
         self._states_std = None # will be set by the agent class
 
+        # debug
+        self.debug_replay_states = None
+        self.debug_replay_actions = None
+        self.debug_replay_index = 0
+        self.debug_action_diffs = []
+
         self._add_save_attr(
             _approximator='mushroom',
             _predict_params='pickle',
@@ -137,6 +143,10 @@ class ClippedGaussianPolicy(ParametricPolicy):
             _normalize_states='primitive',
             _states_mean='primitive',
             _states_std='primitive',
+            debug_replay_states='primitive',
+            debug_replay_actions='primitive',
+            debug_replay_index='primitive',
+            debug_action_diffs='primitive'
         )
 
     def __call__(self, state, action=None, policy_state=None):
@@ -184,13 +194,21 @@ class ClippedGaussianPolicy(ParametricPolicy):
 
     def draw_deterministic_action(self, state, policy_state=None):
         with torch.no_grad():
-            if self._normalize_states:
-                if self._states_mean is None:
-                    raise ValueError('States mean is not set by the agent class')
-                state_query = (state - self._states_mean) / self._states_std
+            ## Debug for distribution shift...
+            if self.debug_replay_states is not None:
+                # Use state from replay buffer to induce the same observation distribution
+                # to test the actions from the network
+                state_query = torch.tensor(self.debug_replay_states[self.debug_replay_index])
+                self.debug_replay_index += 1
+            ## Debug end
             else:
-                state_query = state
-        
+                if self._normalize_states:
+                    if self._states_mean is None:
+                        raise ValueError('States mean is not set by the agent class')
+                    state_query = (state - self._states_mean) / self._states_std
+                else:
+                    state_query = state
+            
             mu = self._approximator.predict(state_query, **self._predict_params).cpu()
             # mu = np.reshape(self._approximator.predict(np.expand_dims(state_query, axis=0), **self._predict_params), -1)
             
@@ -208,7 +226,22 @@ class ClippedGaussianPolicy(ParametricPolicy):
             else:
                 action = action_raw
 
-            return torch.clip(action, self._low, self._high), None
+            ## Debug for distribution shift...
+            if self.debug_replay_actions is not None:
+                next_replay_action = torch.tensor(self.debug_replay_actions[self.debug_replay_index])
+                self.debug_replay_index += 1
+
+                # Check if the network action is the same as the replay action
+                action_diff = torch.mean(torch.abs(action - next_replay_action))
+                self.debug_action_diffs.append(action_diff)
+
+                # Take the replay action instead of the network action to induce the same observation distribution
+                action = next_replay_action
+            ## Debug end
+
+            action_clipped = torch.clip(action, self._low, self._high)
+            
+            return action_clipped, None
     
     def set_weights(self, weights):
         self._approximator.set_weights(weights)

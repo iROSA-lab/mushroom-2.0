@@ -76,6 +76,7 @@ class BC(DeepAC):
             _squash_actions='primitive',
             _discrete_action_dims='primitive',
             _continuous_action_dims='primitive',
+            _actor_predict_params='pickle',
             _actor_approximator='mushroom',
             _fit_count='primitive',
         )

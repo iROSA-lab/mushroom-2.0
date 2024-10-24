@@ -23,7 +23,8 @@ class BC(DeepAC):
     def __init__(self, mdp_info, policy_class, policy_params,
                  actor_params, actor_optimizer, critic_params=None,
                  batch_size=1, n_epochs_policy=1, patience=1, squash_actions=False,
-                 discrete_action_dims=0, continuous_action_dims=0, normalize_states=False,
+                 discrete_action_dims=0, continuous_action_dims=0,
+                 normalize_states=False, normalize_actions=False,
                  critic_fit_params=None, actor_predict_params=None, critic_predict_params=None):
         """
         Constructor.
@@ -44,6 +45,7 @@ class BC(DeepAC):
             discrete_action_dims (int, 0): number of discrete actions in the action space;
             continuous_action_dims (int, 0): number of continuous actions in the action space;
             normalize_states (bool, False): whether to normalize states;
+            normalize_actions (bool, False): whether to normalize actions;
             critic_fit_params (dict, None): Unused parameter; Left for future
             actor_predict_params (dict, None): Unused parameter; Left for future
             critic_predict_params (dict, None): Unused parameter; Left for future
@@ -67,6 +69,9 @@ class BC(DeepAC):
         self._normalize_states = normalize_states
         self._states_mean = None
         self._states_std = None
+        self._normalize_actions = normalize_actions
+        self._actions_mean = None
+        self._actions_std = None
         self._discrete_action_dims = discrete_action_dims
         self._continuous_action_dims = continuous_action_dims
 
@@ -81,6 +86,9 @@ class BC(DeepAC):
             _normalize_states='primitive',
             _states_mean='primitive',
             _states_std='primitive',
+            _normalize_actions='primitive',
+            _actions_mean='primitive',
+            _actions_std='primitive',
             _discrete_action_dims='primitive',
             _continuous_action_dims='primitive',
             _actor_predict_params='pickle',
@@ -89,11 +97,11 @@ class BC(DeepAC):
         )
     
     def load_dataset(self, dataset):
-        
         self.dataset = dataset
-
         if self._normalize_states:
             self._compute_states_mean_std(self.dataset['obs'])
+        if self._normalize_actions:
+            self._compute_actions_mean_std(self.dataset['action'])
     
     def fit(self, demo_dataset=None, n_epochs=None):
         if demo_dataset is None:
@@ -111,8 +119,12 @@ class BC(DeepAC):
                 state_fit = self._norm_states(obs)
             else:
                 state_fit = obs
+            if self._normalize_actions:
+                act_fit = self._norm_actions(act)
+            else:
+                act_fit = act
 
-            loss = self._loss(state_fit, act)
+            loss = self._loss(state_fit, act_fit)
             self._optimize_actor_parameters(loss)
 
             self._fit_count += 1
@@ -172,6 +184,19 @@ class BC(DeepAC):
             raise ValueError('States mean and std not computed yet. Call _compute_states_mean_std() on the dataset first.')
         return (states - self._states_mean) / self._states_std
 
+    def _compute_actions_mean_std(self, actions: np.ndarray, eps: float = 1e-3):
+        self._actions_mean = actions.mean(0)
+        self._actions_std = actions.std(0) + eps
+
+        # set them for the policy as well so that we use it when drawing actions
+        self.policy._actions_mean = self._actions_mean
+        self.policy._actions_std = self._actions_std
+    
+    def _norm_actions(self, actions: np.ndarray):
+        if self._actions_mean is None or self._actions_std is None:
+            raise ValueError('Actions mean and std not computed yet. Call _compute_actions_mean_std() on the dataset first.')
+        return (actions - self._actions_mean) / self._actions_std
+        
     def _post_load(self):
         self._actor_approximator = self.policy._approximator
         self._update_optimizer_parameters(self._actor_approximator.model.network.parameters())

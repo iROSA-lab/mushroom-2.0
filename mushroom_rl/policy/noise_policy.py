@@ -89,7 +89,7 @@ class ClippedGaussianPolicy(ParametricPolicy):
     def __init__(self, mu, sigma, low, high, policy_state_shape=None, 
                  draw_random_act=False, draw_deterministic=False,
                  squash_actions=False, discrete_action_dims=0, continuous_action_dims=0,
-                 normalize_states=False):
+                 normalize_states=False, normalize_actions=False):
         """
         Constructor.
 
@@ -105,6 +105,7 @@ class ClippedGaussianPolicy(ParametricPolicy):
             discrete_action_dims (int, 0): the number of discrete actions in the action space.
             continuous_action_dims (int, 0): the number of continuous actions in the action space.
             normalize_states (bool, False): if True, the states will be normalized before being passed to the regressor.
+            normalize_actions (bool, False): if True, the actions will be normalized before being returned.
 
         """
         super().__init__(policy_state_shape)
@@ -122,6 +123,9 @@ class ClippedGaussianPolicy(ParametricPolicy):
         self._normalize_states = normalize_states
         self._states_mean = None # will be set by the agent class
         self._states_std = None # will be set by the agent class
+        self._normalize_actions = normalize_actions
+        self._actions_mean = None # will be set by the agent class
+        self._actions_std = None # will be set by the agent class
 
         # debug
         self.debug_replay_states = None
@@ -143,6 +147,9 @@ class ClippedGaussianPolicy(ParametricPolicy):
             _normalize_states='primitive',
             _states_mean='primitive',
             _states_std='primitive',
+            _normalize_actions='primitive',
+            _actions_mean='primitive',
+            _actions_std='primitive',
             debug_replay_states='primitive',
             debug_replay_actions='primitive',
             debug_replay_index='primitive',
@@ -172,6 +179,11 @@ class ClippedGaussianPolicy(ParametricPolicy):
             if self._squash_actions:
                 # Squash the continuous actions to [-1, 1]
                 mu[-self._continuous_action_dims:] = torch.tanh(mu[-self._continuous_action_dims:])
+
+            if self._normalize_actions:
+                if self._actions_mean is None:
+                    raise ValueError('Actions mean is not set by the agent class')
+                mu = mu * self._actions_std + self._actions_mean
 
             # sample continuous actions from distribution
             distribution = torch.distributions.MultivariateNormal(loc=mu[-self._continuous_action_dims:], scale_tril=self._chol_sigma,
@@ -218,6 +230,11 @@ class ClippedGaussianPolicy(ParametricPolicy):
                 # Squash the continuous actions to [-1, 1]
                 mu[-self._continuous_action_dims:] = torch.tanh(mu[-self._continuous_action_dims:])
 
+            if self._normalize_actions:
+                if self._actions_mean is None:
+                    raise ValueError('Actions mean is not set by the agent class')
+                mu = mu * self._actions_std + self._actions_mean
+            
             action_raw = mu[-self._continuous_action_dims:]
 
             if self._discrete_action_dims > 0:

@@ -23,7 +23,7 @@ class BC(DeepAC):
     def __init__(self, mdp_info, policy_class, policy_params,
                  actor_params, actor_optimizer, critic_params=None,
                  batch_size=1, n_epochs_policy=1, patience=1, squash_actions=False,
-                 discrete_action_dims=0, continuous_action_dims=0,
+                 discrete_action_dims=0, continuous_action_dims=0, normalize_states=False,
                  critic_fit_params=None, actor_predict_params=None, critic_predict_params=None):
         """
         Constructor.
@@ -43,6 +43,7 @@ class BC(DeepAC):
             squash_actions (bool, True): (Optional) whether to squash the actions to [-1, 1] with tanh;
             discrete_action_dims (int, 0): number of discrete actions in the action space;
             continuous_action_dims (int, 0): number of continuous actions in the action space;
+            normalize_states (bool, False): whether to normalize states;
             critic_fit_params (dict, None): Unused parameter; Left for future
             actor_predict_params (dict, None): Unused parameter; Left for future
             critic_predict_params (dict, None): Unused parameter; Left for future
@@ -63,6 +64,9 @@ class BC(DeepAC):
         self._n_epochs_policy = to_parameter(n_epochs_policy)
         self._patience = to_parameter(patience)
         self._squash_actions = squash_actions
+        self._normalize_states = normalize_states
+        self._states_mean = None
+        self._states_std = None
         self._discrete_action_dims = discrete_action_dims
         self._continuous_action_dims = continuous_action_dims
 
@@ -74,40 +78,67 @@ class BC(DeepAC):
             _n_epochs_policy='mushroom',
             _patience='mushroom',
             _squash_actions='primitive',
+            _normalize_states='primitive',
+            _states_mean='primitive',
+            _states_std='primitive',
             _discrete_action_dims='primitive',
             _continuous_action_dims='primitive',
             _actor_predict_params='pickle',
             _actor_approximator='mushroom',
             _fit_count='primitive',
         )
+    
+    def load_dataset(self, dataset):
+        
+        self.dataset = dataset
 
-    def fit(self, demo_dataset, n_epochs=None):
+        if self._normalize_states:
+            self._compute_states_mean_std(self.dataset['obs'])
+    
+    def fit(self, demo_dataset=None, n_epochs=None):
+        if demo_dataset is None:
+            demo_dataset = self.dataset
         if n_epochs is None:
             n_epochs = self._n_epochs_policy()
         
+        acc_loss = []
         # fit on the dataset (for n_epochs)
-        for epoch in trange(n_epochs):
-            for obs, act in minibatch_generator(self._batch_size(), demo_dataset['obs'], demo_dataset['action']):
-                loss = self._loss(obs, act)
-                self._optimize_actor_parameters(loss)
+        # for epoch in trange(n_epochs):
+        epoch_count = 0
+        for obs, act in minibatch_generator(self._batch_size(), demo_dataset['obs'], demo_dataset['action']):
 
-                self._fit_count += 1
+            if self._normalize_states:
+                state_fit = self._norm_states(obs)
+            else:
+                state_fit = obs
 
-                # early stopping: (Optional)
-                # check loss reduction, self._patience
+            loss = self._loss(state_fit, act)
+            self._optimize_actor_parameters(loss)
 
-        self._actor_last_loss = loss.detach().cpu().numpy() # Store actor loss for logging
+            self._fit_count += 1
+            # losses for logging
+            acc_loss.append(loss.detach().cpu().numpy())
+
+            # early stopping: (Optional)
+            # check loss reduction, self._patience
+
+            epoch_count += 1
+            if epoch_count >= n_epochs:
+                break
+
+        # Store mean actor loss for logging
+        self._actor_last_loss = np.mean(acc_loss)
     
-    def _loss(self, obs, act):
+    def _loss(self, state, act):
         # loss for behavior cloning
         
-        # if isinstance(obs, np.ndarray):
-        #     obs = torch.as_tensor(obs, dtype=torch.float32)
+        # if isinstance(state, np.ndarray):
+        #     state = torch.as_tensor(state, dtype=torch.float32)
         act = torch.as_tensor(act, dtype=torch.float32, device=TorchUtils.get_device())
         act_disc = act[:, :self._discrete_action_dims]
         act_cont = act[:, -self._continuous_action_dims:]
 
-        act_pred = self._actor_approximator(obs, **self._actor_predict_params)
+        act_pred = self._actor_approximator(state, **self._actor_predict_params)
         act_pred_disc = act_pred[:, :self._discrete_action_dims]
         act_pred_cont = act_pred[:, -self._continuous_action_dims:]
         if self._squash_actions:
@@ -128,6 +159,18 @@ class BC(DeepAC):
 
         return bc_loss
         
+    def _compute_states_mean_std(self, states: np.ndarray, eps: float = 1e-3):
+        self._states_mean = states.mean(0)
+        self._states_std = states.std(0) + eps
+
+        # set them for the policy as well so that we use it when drawing actions
+        self.policy._states_mean = self._states_mean
+        self.policy._states_std = self._states_std
+
+    def _norm_states(self, states: np.ndarray):
+        if self._states_mean is None or self._states_std is None:
+            raise ValueError('States mean and std not computed yet. Call _compute_states_mean_std() on the dataset first.')
+        return (states - self._states_mean) / self._states_std
 
     def _post_load(self):
         self._actor_approximator = self.policy._approximator

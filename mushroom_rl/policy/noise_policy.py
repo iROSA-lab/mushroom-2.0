@@ -208,12 +208,16 @@ class ClippedGaussianPolicy(ParametricPolicy):
         with torch.no_grad():
             ## Debug for distribution shift...
             if self.debug_replay_states is not None:
-                self._high = self._high.to(state.device)
-                self._low = self._low.to(state.device)
+            # self._high = self._high.to(state.device)
+            # self._low = self._low.to(state.device)
                 # Use state from replay buffer to induce the same observation distribution
                 # to test the actions from the network
                 state_query = torch.tensor(self.debug_replay_states[self.debug_replay_index])
                 self.debug_replay_index += 1
+                if self._normalize_states:
+                    if self._states_mean is None:
+                        raise ValueError('States mean is not set by the agent class')
+                    state_query = (state_query - self._states_mean) / self._states_std
             ## Debug end
             else:
                 if self._normalize_states:

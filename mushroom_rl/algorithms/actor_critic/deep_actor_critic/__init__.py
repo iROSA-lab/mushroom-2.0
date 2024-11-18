@@ -7,5 +7,6 @@ from .trpo import TRPO
 from .ppo import PPO
 from .ppo_bptt import PPO_BPTT
 from .bc import BC
+from .dagger import DAgger
 from .td3_bc import TD3_BC
 from .iql import IQL

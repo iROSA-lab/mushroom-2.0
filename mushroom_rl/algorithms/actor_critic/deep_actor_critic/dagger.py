@@ -183,26 +183,46 @@ class DAgger(DeepAC):
     #     # Store mean actor loss for logging
     #     self._actor_last_loss = np.mean(acc_loss)
     
-    def fit(self, n_epochs=None):
+    def fit(self, n_epochs=None, pretrain_data=False):
         # fit on the expert replay memory data for n_epochs
         if n_epochs is None:
             n_epochs = self._n_epochs_policy()
         acc_loss = []
         
-        for epoch_count in range(n_epochs):
-            obs, act, _, _, _, _ = self.expert_replay_memory.get(self._batch_size())
-            # if self._normalize_states:
-            #     state_fit = self._norm_states(obs)
-            # else:
-            state_fit = obs
-            # if self._normalize_actions:
-            #     act_fit = self._norm_actions(act)
-            # else:
-            act_fit = act
-            loss = self._loss(state_fit, act_fit)
-            self._optimize_actor_parameters(loss)
-            # losses for logging
-            acc_loss.append(loss.detach().cpu().numpy())
+        if pretrain_data is True:
+            # fit on the pre-train dataset
+            epoch_count = 0
+            for obs, act in minibatch_generator(self._batch_size(), self.pre_train_dataset['obs'], self.pre_train_dataset['action']):
+                # if self._normalize_states:
+                #     state_fit = self._norm_states(obs)
+                # else:
+                state_fit = obs
+                # if self._normalize_actions:
+                #     act_fit = self._norm_actions(act)
+                # else:
+                act_fit = act
+                loss = self._loss(state_fit, act_fit)
+                self._optimize_actor_parameters(loss)
+                # losses for logging
+                acc_loss.append(loss.detach().cpu().numpy())
+                epoch_count += 1
+                if epoch_count >= n_epochs:
+                    break
+        else:
+            for epoch_count in range(n_epochs):
+                obs, act, _, _, _, _ = self.expert_replay_memory.get(self._batch_size())
+                # if self._normalize_states:
+                #     state_fit = self._norm_states(obs)
+                # else:
+                state_fit = obs
+                # if self._normalize_actions:
+                #     act_fit = self._norm_actions(act)
+                # else:
+                act_fit = act
+                loss = self._loss(state_fit, act_fit)
+                self._optimize_actor_parameters(loss)
+                # losses for logging
+                acc_loss.append(loss.detach().cpu().numpy())
 
         # Store mean actor loss for logging
         self._actor_last_loss = np.mean(acc_loss)

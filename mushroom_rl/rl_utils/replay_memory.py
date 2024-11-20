@@ -107,6 +107,36 @@ class ReplayMemory(Serializable):
                     self._idx = 0
 
                 i += 1
+    
+    def add_single(self, state, action, reward, next_state, absorbing, last, policy_state=None, policy_next_state=None):
+        """
+        Add a single element to the replay memory.
+        Make sure the data is on the same backend as the replay memory!!
+        """
+        if self._full:
+            self._dataset.state[self._idx] = state
+            self._dataset.action[self._idx] = action
+            self._dataset.reward[self._idx] = reward
+            self._dataset.next_state[self._idx] = next_state
+            self._dataset.absorbing[self._idx] = absorbing
+            self._dataset.last[self._idx] = last
+
+            if self._dataset.is_stateful:
+                self._dataset.policy_state[self._idx] = policy_state
+                self._dataset.policy_next_state[self._idx] = policy_next_state
+
+        else:
+            sample = [state, action, reward, next_state, absorbing, last]
+
+            if self._dataset.is_stateful:
+                sample += [policy_state, policy_next_state]
+
+            self._dataset.append(sample, {})
+
+        self._idx += 1
+        if self._idx == self._max_size:
+            self._full = True
+            self._idx = 0
 
     def get(self, n_samples):
         """

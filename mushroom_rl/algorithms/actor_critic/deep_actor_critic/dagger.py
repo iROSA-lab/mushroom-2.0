@@ -183,11 +183,12 @@ class DAgger(DeepAC):
     #     # Store mean actor loss for logging
     #     self._actor_last_loss = np.mean(acc_loss)
     
-    def fit(self, n_epochs=None, pretrain_data=False):
+    def fit(self, n_epochs=None, pretrain_data=False, track_loss=True):
         # fit on the expert replay memory data for n_epochs
         if n_epochs is None:
             n_epochs = self._n_epochs_policy()
-        acc_loss = []
+        if track_loss is True:
+            acc_loss = []
         
         if pretrain_data is True:
             # fit on the pre-train dataset
@@ -203,8 +204,9 @@ class DAgger(DeepAC):
                 act_fit = act
                 loss = self._loss(state_fit, act_fit)
                 self._optimize_actor_parameters(loss)
-                # losses for logging
-                acc_loss.append(loss.detach().cpu().numpy())
+                if track_loss is True:
+                    # losses for logging
+                    acc_loss.append(loss.detach().cpu().numpy())
                 epoch_count += 1
                 if epoch_count >= n_epochs:
                     break
@@ -221,11 +223,13 @@ class DAgger(DeepAC):
                 act_fit = act
                 loss = self._loss(state_fit, act_fit)
                 self._optimize_actor_parameters(loss)
-                # losses for logging
-                acc_loss.append(loss.detach().cpu().numpy())
+                if track_loss is True:
+                    # losses for logging
+                    acc_loss.append(loss.detach().cpu().numpy())
 
-        # Store mean actor loss for logging
-        self._actor_last_loss = np.mean(acc_loss)
+        if track_loss is True:
+            # Store mean actor loss for logging
+            self._actor_last_loss = np.mean(acc_loss)
     
     def _loss(self, state, act):
         # loss for behavior cloning

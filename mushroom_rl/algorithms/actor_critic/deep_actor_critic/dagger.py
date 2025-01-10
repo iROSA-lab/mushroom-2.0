@@ -83,6 +83,7 @@ class DAgger(DeepAC):
 
         # create an expert action replay memory buffer
         self.expert_replay_memory = ReplayMemory(mdp_info, self.info, initial_replay_size, max_replay_size)
+        self._expert_replay_memory = self.expert_replay_memory
 
         self._fit_count = 0
         self._actor_last_loss = None # Store actor loss for logging
@@ -102,6 +103,7 @@ class DAgger(DeepAC):
             _continuous_action_dims='primitive',
             _actor_predict_params='pickle',
             _actor_approximator='mushroom',
+            _expert_replay_memory='mushroom',
             _fit_count='primitive',
         )
 

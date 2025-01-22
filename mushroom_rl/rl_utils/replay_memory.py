@@ -11,7 +11,7 @@ class ReplayMemory(Serializable):
     "Human-Level Control Through Deep Reinforcement Learning" by Mnih V. et al..
 
     """
-    def __init__(self, mdp_info, agent_info, initial_size, max_size):
+    def __init__(self, mdp_info, agent_info, initial_size, max_size, reset_idx=0):
         """
         Constructor.
 
@@ -20,12 +20,20 @@ class ReplayMemory(Serializable):
             agent_info (AgentInfo): information about the agent;
             initial_size (int): initial size of the replay buffer;
             max_size (int): maximum size of the replay buffer;
+            reset_idx (int, 0): (Optional) If loading replay memory from file, 
+                                keep this portion of the memory to keep intact;
 
         """
 
         self._initial_size = initial_size
         self._max_size = max_size
-        self._idx = 0
+        self._reset_idx = reset_idx
+        if reset_idx > 0:
+            # If non-zero reset_idx is provided, the replay memory is always reset to the provided index
+            # to avoid forgetting part of the replay memory
+            self._idx = reset_idx
+        else:
+            self._idx = 0
         self._full = False
         self._mdp_info = mdp_info
         self._agent_info = agent_info
@@ -42,6 +50,7 @@ class ReplayMemory(Serializable):
             _mdp_info='mushroom',
             _agent_info='mushroom',
             _idx='primitive!',
+            _reset_idx='primitive!',
             _full='primitive!',
             _dataset='mushroom!',
         )
@@ -104,7 +113,7 @@ class ReplayMemory(Serializable):
                 self._idx += 1
                 if self._idx == self._max_size:
                     self._full = True
-                    self._idx = 0
+                    self._idx = self._reset_idx
 
                 i += 1
     
@@ -112,6 +121,8 @@ class ReplayMemory(Serializable):
         """
         Add a single element to the replay memory.
         Make sure the data is on the same backend as the replay memory!!
+        Optionally, you may choose to not forget part of the replay memory
+        by passing a reset_idx i.e. the portion of the memory to keep intact.
         """
         if self._full:
             self._dataset.state[self._idx] = state
@@ -136,7 +147,7 @@ class ReplayMemory(Serializable):
         self._idx += 1
         if self._idx == self._max_size:
             self._full = True
-            self._idx = 0
+            self._idx = self._reset_idx
 
     def get(self, n_samples):
         """
@@ -161,7 +172,9 @@ class ReplayMemory(Serializable):
         Reset the replay memory.
 
         """
-        self._idx = 0
+        if not hasattr(self, '_reset_idx') or self._reset_idx is None:
+            self._reset_idx = 0
+        self._idx = self._reset_idx
         self._full = False
         dataset_info = DatasetInfo.create_replay_memory_info(self._mdp_info, self._agent_info)
         self._dataset = Dataset(dataset_info, n_steps=self._max_size)

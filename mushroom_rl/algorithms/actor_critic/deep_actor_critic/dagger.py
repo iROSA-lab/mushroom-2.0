@@ -82,11 +82,10 @@ class DAgger(DeepAC):
         self._continuous_action_dims = continuous_action_dims
 
         # create an expert action replay memory buffer
-        self.expert_replay_memory = ReplayMemory(mdp_info, self.info, initial_replay_size, max_replay_size)
-        self._expert_replay_memory = self.expert_replay_memory
+        self._expert_replay_memory = ReplayMemory(mdp_info, self.info, initial_replay_size, max_replay_size)
 
         self._fit_count = 0
-        self._actor_last_loss = None # Store actor loss for logging
+        self._actor_last_loss = 0 # Store actor loss for logging
 
         self._add_save_attr(
             _batch_size='mushroom',
@@ -105,6 +104,7 @@ class DAgger(DeepAC):
             _actor_approximator='mushroom',
             _expert_replay_memory='mushroom',
             _fit_count='primitive',
+            _actor_last_loss='primitive',
         )
 
     def load_dataset(self, dataset):
@@ -113,9 +113,9 @@ class DAgger(DeepAC):
 
         ## Add this dataset to the replay memory:
         # create mushroom dataset
-        if self.expert_replay_memory._max_size < len(dataset['obs']):
+        if self._expert_replay_memory._max_size < len(dataset['obs']):
             print('[[Warning: pre-train dataset size exceeds max replay memory size! Sub-sampling!]]')
-            rand_idx = np.random.choice(len(dataset['obs']), self.expert_replay_memory._max_size, replace=False)
+            rand_idx = np.random.choice(len(dataset['obs']), self._expert_replay_memory._max_size, replace=False)
             mushroom_dataset = Dataset.from_array(dataset['obs'][rand_idx], dataset['action'][rand_idx], dataset['reward'][rand_idx],
                               dataset['next_obs'][rand_idx], dataset['absorbing'][rand_idx], dataset['last'][rand_idx],
                               backend='torch')
@@ -124,8 +124,8 @@ class DAgger(DeepAC):
                               dataset['next_obs'], dataset['absorbing'], dataset['last'],
                               backend='torch')
         # copy it over to the replay buffer
-        # self.expert_replay_memory._initial_size = len(mushroom_dataset) # increase initial size (Needed?)
-        self.expert_replay_memory.add(mushroom_dataset)
+        # self._expert_replay_memory._initial_size = len(mushroom_dataset) # increase initial size (Needed?)
+        self._expert_replay_memory.add(mushroom_dataset)
 
         # no normalization for now
         # if self._normalize_states:
@@ -214,7 +214,7 @@ class DAgger(DeepAC):
                     break
         else:
             for epoch_count in range(n_epochs):
-                obs, act, _, _, _, _ = self.expert_replay_memory.get(self._batch_size())
+                obs, act, _, _, _, _ = self._expert_replay_memory.get(self._batch_size())
                 # if self._normalize_states:
                 #     state_fit = self._norm_states(obs)
                 # else:

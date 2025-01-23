@@ -111,21 +111,21 @@ class DAgger(DeepAC):
         # For pre-training
         self.pre_train_dataset = dataset
 
-        ## Add this dataset to the replay memory:
-        # create mushroom dataset
-        if self._expert_replay_memory._max_size < len(dataset['obs']):
-            print('[[Warning: pre-train dataset size exceeds max replay memory size! Sub-sampling!]]')
-            rand_idx = np.random.choice(len(dataset['obs']), self._expert_replay_memory._max_size, replace=False)
-            mushroom_dataset = Dataset.from_array(dataset['obs'][rand_idx], dataset['action'][rand_idx], dataset['reward'][rand_idx],
-                              dataset['next_obs'][rand_idx], dataset['absorbing'][rand_idx], dataset['last'][rand_idx],
-                              backend='torch')
-        else:
-            mushroom_dataset = Dataset.from_array(dataset['obs'], dataset['action'], dataset['reward'],
-                              dataset['next_obs'], dataset['absorbing'], dataset['last'],
-                              backend='torch')
-        # copy it over to the replay buffer
-        # self._expert_replay_memory._initial_size = len(mushroom_dataset) # increase initial size (Needed?)
-        self._expert_replay_memory.add(mushroom_dataset)
+        ## (Optional) Add this dataset to the replay memory:
+        # # create mushroom dataset
+        # if self._expert_replay_memory._max_size < len(dataset['obs']):
+        #     print('[[Warning: pre-train dataset size exceeds max replay memory size! Sub-sampling!]]')
+        #     rand_idx = np.random.choice(len(dataset['obs']), self._expert_replay_memory._max_size, replace=False)
+        #     mushroom_dataset = Dataset.from_array(dataset['obs'][rand_idx], dataset['action'][rand_idx], dataset['reward'][rand_idx],
+        #                       dataset['next_obs'][rand_idx], dataset['absorbing'][rand_idx], dataset['last'][rand_idx],
+        #                       backend='torch')
+        # else:
+        #     mushroom_dataset = Dataset.from_array(dataset['obs'], dataset['action'], dataset['reward'],
+        #                       dataset['next_obs'], dataset['absorbing'], dataset['last'],
+        #                       backend='torch')
+        # # copy it over to the replay buffer
+        # # self._expert_replay_memory._initial_size = len(mushroom_dataset) # increase initial size (Needed?)
+        # self._expert_replay_memory.add(mushroom_dataset)
 
         # no normalization for now
         # if self._normalize_states:
@@ -133,101 +133,60 @@ class DAgger(DeepAC):
         # if self._normalize_actions:
         #     self._compute_actions_mean_std(self.pre_train_dataset['action'])
     
-    # # Deprecated
-    # def fit(self, demo_dataset=None, n_epochs=None):
-    #     if n_epochs is None:
-    #         n_epochs = self._n_epochs_policy()
-    #     acc_loss = []
-        
-    #     if demo_dataset is None:
-    #         # pre-training!
-    #         demo_dataset = self.pre_train_dataset
-    #         # fit on the dataset (for n_epochs)
-    #         # for epoch in trange(n_epochs):
-    #         epoch_count = 0
-    #         for obs, act in minibatch_generator(self._batch_size(), demo_dataset['obs'], demo_dataset['action']):
-    #             # if self._normalize_states:
-    #             #     state_fit = self._norm_states(obs)
-    #             # else:
-    #             state_fit = obs
-    #             # if self._normalize_actions:
-    #             #     act_fit = self._norm_actions(act)
-    #             # else:
-    #             act_fit = act
-    #             loss = self._loss(state_fit, act_fit)
-    #             self._optimize_actor_parameters(loss)
-    #             # losses for logging
-    #             acc_loss.append(loss.detach().cpu().numpy())
-    #             epoch_count += 1
-    #             if epoch_count >= n_epochs:
-    #                 break
-    #     else:
-    #         # fit using the online demo_dataset with expert actions
-    #         epoch_count = 0
-    #         for obs, act in minibatch_generator(self._batch_size(), demo_dataset['obs'], demo_dataset['action']):
-    #             # obs, act, _, _, _, _ = self._replay_memory.get(self._batch_size())
-    #             # if self._normalize_states:
-    #             #     state_fit = self._norm_states(obs)
-    #             # else:
-    #             state_fit = obs
-    #             # if self._normalize_actions:
-    #             #     act_fit = self._norm_actions(act)
-    #             # else:
-    #             act_fit = act
-    #             loss = self._loss(state_fit, act_fit)
-    #             self._optimize_actor_parameters(loss)
-    #             # losses for logging
-    #             acc_loss.append(loss.detach().cpu().numpy())
-    #             epoch_count += 1
-    #             if epoch_count >= n_epochs:
-    #                 break
-
-    #     # Store mean actor loss for logging
-    #     self._actor_last_loss = np.mean(acc_loss)
-    
-    def fit(self, n_epochs=None, pretrain_data=False, track_loss=True):
+    def fit(self, n_epochs=None, pretrain_data=False, pre_train_maintain=False, pre_train_maintain_percent=0.0, track_loss=True):
         # fit on the expert replay memory data for n_epochs
         if n_epochs is None:
             n_epochs = self._n_epochs_policy()
         if track_loss is True:
             acc_loss = []
         
-        if pretrain_data is True:
-            # fit on the pre-train dataset
-            epoch_count = 0
-            for obs, act in minibatch_generator(self._batch_size(), self.pre_train_dataset['obs'], self.pre_train_dataset['action']):
-                # if self._normalize_states:
-                #     state_fit = self._norm_states(obs)
-                # else:
-                state_fit = obs
-                # if self._normalize_actions:
-                #     act_fit = self._norm_actions(act)
-                # else:
-                act_fit = act
-                loss = self._loss(state_fit, act_fit)
-                self._optimize_actor_parameters(loss)
-                if track_loss is True:
-                    # losses for logging
-                    acc_loss.append(loss.detach().cpu().numpy())
-                epoch_count += 1
-                if epoch_count >= n_epochs:
-                    break
+        if pretrain_data is True and pre_train_maintain is False:
+            # fit only the pre-train dataset
+            pretrain_batch_size = self._batch_size()
+            pre_train_batch_gen = minibatch_generator(pretrain_batch_size, self.pre_train_dataset['obs'], self.pre_train_dataset['action'])
+            expert_replay_batch_size = 0
+        elif pretrain_data is False and pre_train_maintain is False:
+            # fit only on the expert replay memory
+            pretrain_batch_size = 0
+            expert_replay_batch_size = self._batch_size()
+        elif pretrain_data is False and pre_train_maintain is True:
+            # fit on both pre-train dataset and expert replay memory
+            if not (0.0 < pre_train_maintain_percent < 1.0):
+                raise ValueError("pre_train_maintain_percent must be between 0.0 and 1.0")
+            pretrain_batch_size = int(self._batch_size() * pre_train_maintain_percent)
+            pre_train_batch_gen = minibatch_generator(pretrain_batch_size, self.pre_train_dataset['obs'], self.pre_train_dataset['action'])
+            expert_replay_batch_size = self._batch_size() - pretrain_batch_size
         else:
-            for epoch_count in range(n_epochs):
-                obs, act, _, _, _, _ = self._expert_replay_memory.get(self._batch_size())
-                # if self._normalize_states:
-                #     state_fit = self._norm_states(obs)
-                # else:
-                state_fit = obs
-                # if self._normalize_actions:
-                #     act_fit = self._norm_actions(act)
-                # else:
-                act_fit = act
-                loss = self._loss(state_fit, act_fit)
-                self._optimize_actor_parameters(loss)
-                if track_loss is True:
-                    # losses for logging
-                    acc_loss.append(loss.detach().cpu().numpy())
+            raise ValueError("Invalid combination of pretrain_data and pre_train_maintain flags")
+        
+        epoch_count = 0
+        for epoch_count in range(n_epochs):
+            if expert_replay_batch_size > 0:
+                # get batch from the expert replay memory
+                obs, act, _, _, _, _ = self._expert_replay_memory.get(expert_replay_batch_size)
+            else:
+                obs = np.zeros((0, self.mdp_info.observation_space.shape[0]))
+                act = np.zeros((0, self.mdp_info.action_space.shape[0]))
+            if pretrain_batch_size > 0:
+                # get batch from pre-train dataset
+                obs_pretrain, act_pretrain = next(pre_train_batch_gen)
+                # stack the batches
+                obs = np.vstack((obs, obs_pretrain))
+                act = np.vstack((act, act_pretrain))
+            
+            # if self._normalize_states:
+            #     state_fit = self._norm_states(obs)
+            # else:
+            state_fit = obs
+            # if self._normalize_actions:
+            #     act_fit = self._norm_actions(act)
+            # else:
+            act_fit = act
+            loss = self._loss(state_fit, act_fit)
+            self._optimize_actor_parameters(loss)
+            if track_loss is True:
+                # losses for logging
+                acc_loss.append(loss.detach().cpu().numpy())
 
         if track_loss is True:
             # Store mean actor loss for logging

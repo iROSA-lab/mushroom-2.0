@@ -1,6 +1,7 @@
 from .policy import Policy, ParametricPolicy
 from .vector_policy import VectorPolicy
 from .noise_policy import OrnsteinUhlenbeckPolicy, ClippedGaussianPolicy
+from .diffusion_policy import DiffusionPolicy
 from .td_policy import TDPolicy, Boltzmann, EpsGreedy, Mellowmax
 from .gaussian_policy import GaussianPolicy, DiagonalGaussianPolicy, \
      StateStdGaussianPolicy, StateLogStdGaussianPolicy
@@ -14,7 +15,7 @@ from .dmp import DMP
 __all_td__ = ['TDPolicy', 'Boltzmann', 'EpsGreedy', 'Mellowmax']
 __all_parametric__ = ['ParametricPolicy', 'GaussianPolicy',
                       'DiagonalGaussianPolicy', 'StateStdGaussianPolicy',
-                      'StateLogStdGaussianPolicy', 'ProMP']
+                      'StateLogStdGaussianPolicy', 'ProMP', 'DiffusionPolicy']
 __all_torch__ = ['TorchPolicy', 'GaussianTorchPolicy', 'BoltzmannTorchPolicy']
 __all_noise__ = ['OrnsteinUhlenbeckPolicy', 'ClippedGaussianPolicy']
 __all_mp__ = ['ProMP', 'DMP']

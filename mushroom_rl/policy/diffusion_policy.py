@@ -113,15 +113,15 @@ class DiffusionPolicy(ParametricPolicy):
     def reset(self):
         """Clear observation and action queues. Should be called on `env.reset()`"""
         self._queues = {
-            "observation.state": deque(maxlen=self.config.n_obs_steps),
-            "action": deque(maxlen=self.config.n_action_steps),
+            "observation.state": deque(maxlen=self.config['n_obs_steps']),
+            "action": deque(maxlen=self.config['n_action_steps']),
         }
-        if self.config.image_features:
+        if self.config['image_features']:
             raise NotImplementedError("Image features are not implemented yet")
-            self._queues["observation.images"] = deque(maxlen=self.config.n_obs_steps)
-        if self.config.env_state_feature:
+            self._queues["observation.images"] = deque(maxlen=self.config['n_obs_steps'])
+        if self.config['env_state_feature']:
             raise NotImplementedError("Environment state feature is not implemented yet")
-            self._queues["observation.environment_state"] = deque(maxlen=self.config.n_obs_steps)
+            self._queues["observation.environment_state"] = deque(maxlen=self.config['n_obs_steps'])
 
     @torch.no_grad()
     def select_action(self, batch: dict[str, Tensor]) -> Tensor:
@@ -146,11 +146,11 @@ class DiffusionPolicy(ParametricPolicy):
         actually measured from the first observation which (if `n_obs_steps` > 1) happened in the past.
         """
         # batch = self.normalize_inputs(batch) # Assuming inputs are normalized already if needed
-        if self.config.image_features:
+        if self.config['image_features']:
             raise NotImplementedError("Image features are not implemented yet")
             batch = dict(batch)  # shallow copy so that adding a key doesn't modify the original
             batch["observation.images"] = torch.stack(
-                [batch[key] for key in self.config.image_features], dim=-4
+                [batch[key] for key in self.config['image_features']], dim=-4
             )
         # Note: It's important that this happens after stacking the images into a single key.
         self._queues = populate_queues(self._queues, batch)
@@ -172,11 +172,11 @@ class DiffusionPolicy(ParametricPolicy):
     def forward(self, batch: dict[str, Tensor], squash_actions: bool) -> dict[str, Tensor]:
         """Run the batch through the model and compute the loss for training or validation."""
         # batch = self.normalize_inputs(batch) # Assuming inputs are normalized already if needed
-        if self.config.image_features:
+        if self.config['image_features']:
             raise NotImplementedError("Image features are not implemented yet")
             batch = dict(batch)  # shallow copy so that adding a key doesn't modify the original
             batch["observation.images"] = torch.stack(
-                [batch[key] for key in self.config.image_features], dim=-4
+                [batch[key] for key in self.config['image_features']], dim=-4
             )
         # batch = self.normalize_targets(batch)
         # TODO: check if action normalization/unnormalization is needed

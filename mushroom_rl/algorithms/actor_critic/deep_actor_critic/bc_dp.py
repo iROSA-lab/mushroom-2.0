@@ -66,7 +66,7 @@ class BC_DP(DeepAC):
         # policy = policy_class(self._actor_approximator, **policy_params)
         policy = policy_class(policy_params)
 
-        policy_parameters = policy.model.parameters()
+        policy_parameters = policy._model.parameters()
 
         super().__init__(mdp_info, policy, actor_optimizer, policy_parameters)
 
@@ -107,9 +107,9 @@ class BC_DP(DeepAC):
     def load_dataset(self, dataset):
         # Copy over dataset. Convert to torch tensors
         self.dataset = dict()
-        self.dataset['obs'] = torch.as_tensor(dataset['obs'], dtype=torch.float32, device=TorchUtils.get_device())
-        self.dataset['action'] = torch.as_tensor(dataset['action'], dtype=torch.float32, device=TorchUtils.get_device())
-        self.dataset['last'] = torch.as_tensor(dataset['last'], dtype=torch.bool, device=TorchUtils.get_device())
+        self.dataset['obs'] = torch.as_tensor(dataset['obs'], dtype=torch.float32)
+        self.dataset['action'] = torch.as_tensor(dataset['action'], dtype=torch.float32)
+        self.dataset['last'] = torch.as_tensor(dataset['last'], dtype=torch.bool)
         
         # normalize if needed
         if self._normalize_states:
@@ -138,23 +138,25 @@ class BC_DP(DeepAC):
         # For example:
         # "observation.state": [-0.1, 0.0],
         # "action": [-0.1, 0.0, 0.1, 0.2, 0.3, 0.4],
-        n_obs_steps = self.policy.config.n_obs_steps
-        action_horizon = self.policy.config.horizon
+        n_obs_steps = self.policy.config['n_obs_steps']
+        action_horizon = self.policy.config['horizon']
         
-        rearranged_dataset = {'obs': torch.empty((0, self.dataset['obs'].shape[1])),
-                              'action': torch.empty((0, self.dataset['action'].shape[1]))}
+        rearranged_dataset = {'obs': torch.empty((0, n_obs_steps, self.dataset['obs'].shape[1])),
+                              'action': torch.empty((0, action_horizon, self.dataset['action'].shape[1]))}
         for episode in episodes:
             for ep_idx in range(len(episode['obs'])):
                 # stack obs
                 obs_indices = torch.arange(ep_idx+1-n_obs_steps, ep_idx+1)
                 # correct for indices out of range. Just pad with the first/last element
                 obs_indices = torch.clip(obs_indices, 0, len(episode['obs'])-1)
-                rearranged_dataset['obs'] = torch.vstack((rearranged_dataset['obs'], episode['obs'][obs_indices]))
+                obs_stack = episode['obs'][obs_indices].unsqueeze(0)
+                rearranged_dataset['obs'] = torch.vstack((rearranged_dataset['obs'], obs_stack))
                 # stack actions
                 act_indices = torch.arange(ep_idx-n_obs_steps+1, ep_idx-n_obs_steps+1+action_horizon)
                 # correct for indices out of range. Just pad with the first/last element
                 act_indices = torch.clip(act_indices, 0, len(episode['action'])-1)
-                rearranged_dataset['action'] = torch.vstack((rearranged_dataset['action'], episode['action'][act_indices]))
+                act_stack = episode['action'][act_indices].unsqueeze(0)
+                rearranged_dataset['action'] = torch.vstack((rearranged_dataset['action'], act_stack))
         
         self.dataset = rearranged_dataset
 

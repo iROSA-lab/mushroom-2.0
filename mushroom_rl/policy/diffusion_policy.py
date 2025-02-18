@@ -4,6 +4,7 @@ from .policy import ParametricPolicy
 from collections import deque
 import torch.nn.functional as F  # noqa: N812
 from torch import Tensor
+from mushroom_rl.utils.torch import TorchUtils
 
 # from lerobot.common.policies.diffusion.configuration_diffusion import DiffusionConfig
 # from lerobot.common.policies.normalize import Normalize, Unnormalize
@@ -37,8 +38,7 @@ class DiffusionPolicy(ParametricPolicy):
     """
     def __init__(self, policy_params, policy_state_shape=None, 
                  draw_random_act=False, draw_deterministic=False,
-                 squash_actions=False, discrete_action_dims=0, continuous_action_dims=0,
-                 normalize_states=False, normalize_actions=False):
+                 squash_actions=False, normalize_states=False, normalize_actions=False):
         """
         Constructor.
 
@@ -47,8 +47,6 @@ class DiffusionPolicy(ParametricPolicy):
             draw_random_act (bool, False): if True, the policy will draw random actions.
             draw_deterministic (bool, False): if True, the policy will draw deterministic actions.
             squash_actions (bool, False): if True, the actions will be squashed to [-1, 1] with a tanh function.
-            discrete_action_dims (int, 0): the number of discrete actions in the action space. # Unused for now
-            continuous_action_dims (int, 0): the number of continuous actions in the action space. # Unused for now
             normalize_states (bool, False): if True, the states will be normalized before being passed to the regressor.
             normalize_actions (bool, False): if True, the actions will be normalized before being returned.
 
@@ -59,6 +57,8 @@ class DiffusionPolicy(ParametricPolicy):
         self._queues = None
         self.config = policy_params
         self._model = policy_params['model_class'](self.config)
+        # move model to correct device
+        self._model.to(TorchUtils.get_device())
         self.reset()
 
         # self._approximator = mu
@@ -66,15 +66,13 @@ class DiffusionPolicy(ParametricPolicy):
         # self._chol_sigma = torch.linalg.cholesky(sigma)
         self._low = torch.as_tensor(self.config['low'])
         self._high = torch.as_tensor(self.config['high'])
-        self._draw_random_act = draw_random_act
-        self._draw_deterministic = draw_deterministic
-        self._squash_actions = squash_actions
-        self._discrete_action_dims = discrete_action_dims
-        self._continuous_action_dims = continuous_action_dims
-        self._normalize_states = normalize_states
+        self._draw_random_act = draw_random_act # unused for now
+        self._draw_deterministic = draw_deterministic # unused for now
+        self._squash_actions = policy_params['squash_actions']
+        self._normalize_states = policy_params['normalize_states']
         self._states_mean = None # will be set by the agent class
         self._states_std = None # will be set by the agent class
-        self._normalize_actions = normalize_actions
+        self._normalize_actions = policy_params['normalize_actions']
         self._actions_mean = None # will be set by the agent class
         self._actions_std = None # will be set by the agent class
 
@@ -93,8 +91,6 @@ class DiffusionPolicy(ParametricPolicy):
             _draw_random_act='primitive',
             _draw_deterministic='primitive',
             _squash_actions='primitive',
-            _discrete_action_dims='primitive',
-            _continuous_action_dims='primitive',
             _normalize_states='primitive',
             _states_mean='primitive',
             _states_std='primitive',
@@ -185,7 +181,7 @@ class DiffusionPolicy(ParametricPolicy):
 
     def draw_action(self, state, policy_state=None):
         
-        if state.type == 'numpy': # TODO test
+        if state.type == 'numpy':
             state = torch.tensor(state)
         
         if self._draw_random_act is True:
@@ -201,13 +197,15 @@ class DiffusionPolicy(ParametricPolicy):
             else:
                 state_query = state
                 
-            input_batch = {'observation.state': state_query}
-            mu = self.select_action(input_batch).cpu()
+            input_batch = { # batch_size = 1
+                'observation.state': state_query.unsqueeze(0).to(TorchUtils.get_device())
+                }
+            mu = self.select_action(input_batch).cpu()[0]
             # mu = self._model.predict(state_query, **self._predict_params).cpu()
             # mu = np.reshape(self._approximator.predict(np.expand_dims(state_query, axis=0), **self._predict_params), -1)
             if self._squash_actions:
                 # Squash the continuous actions to [-1, 1]
-                mu[-self._continuous_action_dims:] = torch.tanh(mu[-self._continuous_action_dims:])
+                mu = torch.tanh(mu)
 
             if self._normalize_actions:
                 if self._actions_mean is None:
@@ -215,17 +213,17 @@ class DiffusionPolicy(ParametricPolicy):
                 mu = mu * self._actions_std + self._actions_mean
 
             # sample continuous actions from distribution
-            distribution = torch.distributions.MultivariateNormal(loc=mu[-self._continuous_action_dims:], scale_tril=self._chol_sigma,
+            distribution = torch.distributions.MultivariateNormal(loc=mu, scale_tril=self._chol_sigma,
                                                                   validate_args=False)
             action_raw = distribution.sample()
 
-            if self._discrete_action_dims > 0:
-                # discrete actions from network are logits, so sigmoid them
-                action_disc = torch.sigmoid(mu[:self._discrete_action_dims])
-                action = torch.cat((action_disc, action_raw), dim=0)
-                # print("action: ", torch.round(action*100)/100)
-            else:
-                action = action_raw
+            # if self._discrete_action_dims > 0:
+            #     # discrete actions from network are logits, so sigmoid them
+            #     action_disc = torch.sigmoid(mu[:self._discrete_action_dims])
+            #     action = torch.cat((action_disc, action_raw), dim=0)
+            #     # print("action: ", torch.round(action*100)/100)
+            # else:
+            action = action_raw
 
             return torch.clip(action, self._low, self._high), None
     
@@ -246,28 +244,30 @@ class DiffusionPolicy(ParametricPolicy):
             else:
                 state_query = state
             
-            input_batch = {'observation.state': state_query}
-            mu = self.select_action(input_batch).cpu()
+            input_batch = { # batch_size = 1
+                'observation.state': state_query.unsqueeze(0).to(TorchUtils.get_device())
+                }
+            mu = self.select_action(input_batch).cpu()[0]
             # mu = self._model.predict(state_query, **self._predict_params).cpu()
             
             if self._squash_actions:
                 # Squash the continuous actions to [-1, 1]
-                mu[-self._continuous_action_dims:] = torch.tanh(mu[-self._continuous_action_dims:])
+                mu = torch.tanh(mu)
 
             if self._normalize_actions:
                 if self._actions_mean is None:
                     raise ValueError('Actions mean is not set by the agent class')
                 mu = mu * self._actions_std + self._actions_mean
             
-            action_raw = mu[-self._continuous_action_dims:]
+            action_raw = mu
 
-            if self._discrete_action_dims > 0:
-                # discrete actions from network are logits, so sigmoid them
-                action_disc = torch.sigmoid(mu[:self._discrete_action_dims])
-                action = torch.cat((action_disc, action_raw), dim=0)
-                # print("action: ", torch.round(action*100)/100)
-            else:
-                action = action_raw
+            # if self._discrete_action_dims > 0:
+            #     # discrete actions from network are logits, so sigmoid them
+            #     action_disc = torch.sigmoid(mu[:self._discrete_action_dims])
+            #     action = torch.cat((action_disc, action_raw), dim=0)
+            #     # print("action: ", torch.round(action*100)/100)
+            # else:
+            action = action_raw
 
             action_clipped = torch.clip(action, self._low, self._high)
             

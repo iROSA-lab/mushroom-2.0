@@ -95,8 +95,8 @@ class BC_DP(DeepAC):
             _states_mean='primitive',
             _states_std='primitive',
             _normalize_actions='primitive',
-            _actions_mean='primitive',
-            _actions_std='primitive',
+            _actions_mean='torch',
+            _actions_std='torch',
             _discrete_action_dims='primitive',
             _continuous_action_dims='primitive',
             # _actor_predict_params='pickle',
@@ -104,7 +104,7 @@ class BC_DP(DeepAC):
             _fit_count='primitive',
         )
     
-    def load_dataset(self, dataset):
+    def load_dataset(self, dataset, debug=False):
         # Copy over dataset. Convert to torch tensors
         self.dataset = dict()
         self.dataset['obs'] = torch.as_tensor(dataset['obs'], dtype=torch.float32)
@@ -116,12 +116,20 @@ class BC_DP(DeepAC):
             self._compute_states_mean_std(self.dataset['obs'])
             # save the normalized states in the dataset
             self.dataset['obs'] = self._norm_states(self.dataset['obs'])
+            # move devices if needed
+            self._states_mean = self._states_mean.to(TorchUtils.get_device())
+            self._states_std = self._states_std.to(TorchUtils.get_device())
         if self._normalize_actions:
             self._compute_actions_mean_std(self.dataset['action'])
             # save the normalized actions in the dataset
             self.dataset['action'] = self._norm_actions(self.dataset['action'])
+            # move devices if needed
+            self._actions_mean = self._actions_mean.to(TorchUtils.get_device())
+            self._actions_std = self._actions_std.to(TorchUtils.get_device())
 
         ## rearrange data based on obs_horizon, action_pred_horizon etc. as per diffusion policy
+        n_obs_steps = self.policy.config['n_obs_steps']
+        action_horizon = self.policy.config['horizon']
         # rearrange into episodes
         episodes = []
         episode = {'obs': torch.empty((0, self.dataset['obs'].shape[1])),
@@ -133,33 +141,39 @@ class BC_DP(DeepAC):
                 episodes.append(episode)
                 episode = {'obs': torch.empty((0, self.dataset['obs'].shape[1])),
                            'action': torch.empty((0, self.dataset['action'].shape[1]))}
+            if debug and i > 5:
+                print("[[Debugging so skipping time consuming data rearrangement]]")
+                break
         # stack batches of size n_obs_steps for the obs and size horizon for the actions
         # Note: assumption is always that n_obs_steps < action_horizon
         # For example:
         # "observation.state": [-0.1, 0.0],
         # "action": [-0.1, 0.0, 0.1, 0.2, 0.3, 0.4],
-        n_obs_steps = self.policy.config['n_obs_steps']
-        action_horizon = self.policy.config['horizon']
-        
         rearranged_dataset = {'obs': torch.empty((0, n_obs_steps, self.dataset['obs'].shape[1])),
                               'action': torch.empty((0, action_horizon, self.dataset['action'].shape[1]))}
-        for episode in episodes:
-            for ep_idx in range(len(episode['obs'])):
-                # stack obs
-                obs_indices = torch.arange(ep_idx+1-n_obs_steps, ep_idx+1)
-                # correct for indices out of range. Just pad with the first/last element
-                obs_indices = torch.clip(obs_indices, 0, len(episode['obs'])-1)
-                obs_stack = episode['obs'][obs_indices].unsqueeze(0)
-                rearranged_dataset['obs'] = torch.vstack((rearranged_dataset['obs'], obs_stack))
-                # stack actions
-                act_indices = torch.arange(ep_idx-n_obs_steps+1, ep_idx-n_obs_steps+1+action_horizon)
-                # correct for indices out of range. Just pad with the first/last element
-                act_indices = torch.clip(act_indices, 0, len(episode['action'])-1)
-                act_stack = episode['action'][act_indices].unsqueeze(0)
-                rearranged_dataset['action'] = torch.vstack((rearranged_dataset['action'], act_stack))
+        for idx, episode in enumerate(episodes):
+            # stack obs
+            obs_indices = torch.arange(len(episode['obs'])).unsqueeze(1) - torch.arange(n_obs_steps-1, -1, -1)
+            # correct for indices out of range. Just pad with the first/last element
+            obs_indices = torch.clip(obs_indices, 0, len(episode['obs'])-1)
+            obs_stack = episode['obs'][obs_indices]
+            rearranged_dataset['obs'] = torch.cat((rearranged_dataset['obs'], obs_stack), dim=0)
+            # stack actions
+            act_indices = torch.arange(len(episode['action'])).unsqueeze(1) - torch.arange(n_obs_steps-1, -action_horizon+1, -1)
+            # correct for indices out of range. Just pad with the first/last element
+            act_indices = torch.clip(act_indices, 0, len(episode['action'])-1)
+            act_stack = episode['action'][act_indices]
+            rearranged_dataset['action'] = torch.cat((rearranged_dataset['action'], act_stack), dim=0)
+            # TODO: make this function faster
+            if debug and idx > 5:
+                print("[[Debugging so skipping time consuming data rearrangement]]")
+                break
+        
+        # move devices if needed
+        rearranged_dataset['obs'] = rearranged_dataset['obs'].to(TorchUtils.get_device())
+        rearranged_dataset['action'] = rearranged_dataset['action'].to(TorchUtils.get_device())
         
         self.dataset = rearranged_dataset
-
     
     def fit(self, demo_dataset=None, n_epochs=None):
         if demo_dataset is None:

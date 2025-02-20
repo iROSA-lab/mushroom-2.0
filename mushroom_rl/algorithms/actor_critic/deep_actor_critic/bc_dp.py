@@ -8,7 +8,7 @@ from mushroom_rl.approximators.parametric import TorchApproximator
 from mushroom_rl.utils.minibatches import minibatch_generator
 from mushroom_rl.rl_utils.parameters import Parameter, to_parameter
 from mushroom_rl.utils.torch import TorchUtils
-from tqdm import trange
+from tqdm import tqdm, trange
 
 # from torch.nn.functional import binary_cross_entropy_with_logits
 
@@ -86,6 +86,9 @@ class BC_DP(DeepAC):
         self._fit_count = 0
         self._actor_last_loss = None # Store actor loss for logging
 
+        # remove optimizer save attribute from super class since we will use our own method to save model and optimizer instead
+        del self._save_attributes['_optimizer']
+
         self._add_save_attr(
             _batch_size='mushroom',
             _n_epochs_policy='mushroom',
@@ -128,8 +131,8 @@ class BC_DP(DeepAC):
             self._actions_std = self._actions_std.to(TorchUtils.get_device())
 
         ## rearrange data based on obs_horizon, action_pred_horizon etc. as per diffusion policy
-        n_obs_steps = self.policy.config['n_obs_steps']
-        action_horizon = self.policy.config['horizon']
+        n_obs_steps = self.policy._n_obs_steps
+        action_horizon = self.policy._horizon
         # rearrange into episodes
         episodes = []
         episode = {'obs': torch.empty((0, self.dataset['obs'].shape[1])),
@@ -141,7 +144,7 @@ class BC_DP(DeepAC):
                 episodes.append(episode)
                 episode = {'obs': torch.empty((0, self.dataset['obs'].shape[1])),
                            'action': torch.empty((0, self.dataset['action'].shape[1]))}
-            if debug and i > 5:
+            if debug and i > 2000:
                 print("[[Debugging so skipping time consuming data rearrangement]]")
                 break
         # stack batches of size n_obs_steps for the obs and size horizon for the actions
@@ -183,38 +186,34 @@ class BC_DP(DeepAC):
         
         acc_loss = []
         # fit on the dataset (for n_epochs)
-        # for epoch in trange(n_epochs):
-        epoch_count = 0
+        for epoch in trange(n_epochs):
+            minibatches = len(demo_dataset['obs']) // self._batch_size()
+            with tqdm(total=minibatches) as pbar:
+                for obs, act in minibatch_generator(self._batch_size(), demo_dataset['obs'], demo_dataset['action']):
+                    # if self._normalize_states:
+                    #     state_fit = self._norm_states(obs)
+                    # else:
+                    #     state_fit = obs
+                    # if self._normalize_actions:
+                    #     act_fit = self._norm_actions(act)
+                    # else:
+                    #     act_fit = act
+                    
+                    # loss = self._loss(state_fit, act_fit)
+                    
+                    batch = {'observation.state': obs, 'action': act}
+                    loss = self.policy.forward(batch, self._squash_actions)['loss']
+                    self._optimize_actor_parameters(loss)
 
-        for obs, act in minibatch_generator(self._batch_size(), demo_dataset['obs'], demo_dataset['action']):
+                    self._fit_count += 1
+                    # losses for logging
+                    acc_loss.append(loss.detach().cpu().numpy())
 
-            # if self._normalize_states:
-            #     state_fit = self._norm_states(obs)
-            # else:
-            #     state_fit = obs
-            # if self._normalize_actions:
-            #     act_fit = self._norm_actions(act)
-            # else:
-            #     act_fit = act
-            
-            # loss = self._loss(state_fit, act_fit)
-            
-            batch = {'observation.state': obs, 'action': act}
-            loss = self.policy.forward(batch, self._squash_actions)['loss']
-            self._optimize_actor_parameters(loss)
+                    # early stopping: (Optional)
+                    # check loss reduction, self._patience
 
-            self._fit_count += 1
-            # losses for logging
-            acc_loss.append(loss.detach().cpu().numpy())
-
-            # early stopping: (Optional)
-            # check loss reduction, self._patience
-
-            epoch_count += 1
-            if epoch_count >= n_epochs:
-                break
-        if epoch_count < n_epochs:
-            print(f"WARNING: Stopped early after {epoch_count} epochs. Dataset exhausted.")
+                    # Update the progress bar
+                    pbar.update(1)
 
         # Store mean actor loss for logging
         self._actor_last_loss = np.mean(acc_loss)
@@ -281,6 +280,8 @@ class BC_DP(DeepAC):
         return (actions - self._actions_mean) / self._actions_std
         
     def _post_load(self):
+        # don't do optimizer stuff here. We will create a new one
+        pass
         # self._actor_approximator = self.policy._approximator
         # self._update_optimizer_parameters(self._actor_approximator.model.network.parameters())
-        self._update_optimizer_parameters(self.policy.model.parameters())
+        # self._update_optimizer_parameters(self.policy._model.parameters())

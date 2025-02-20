@@ -1,10 +1,14 @@
 import torch
 import numpy as np
+from pathlib import Path
 from .policy import ParametricPolicy
 from collections import deque
 import torch.nn.functional as F  # noqa: N812
 from torch import Tensor
 from mushroom_rl.utils.torch import TorchUtils
+
+from safetensors.torch import save_model as save_model_as_safetensor
+from safetensors.torch import load_model as load_model_as_safetensor
 
 # from lerobot.common.policies.diffusion.configuration_diffusion import DiffusionConfig
 # from lerobot.common.policies.normalize import Normalize, Unnormalize
@@ -55,17 +59,24 @@ class DiffusionPolicy(ParametricPolicy):
 
         # queues are populated during rollout of the policy, they contain the n latest observations and actions
         self._queues = None
-        self.config = policy_params
-        self._model = policy_params['model_class'](self.config)
+        
+        self._n_obs_steps = policy_params['n_obs_steps']
+        self._horizon = policy_params['horizon']
+        self._n_action_steps = policy_params['n_action_steps']
+        self._image_features = policy_params['image_features']
+        self._env_state_feature = policy_params['env_state_feature']
+        model_config = policy_params # just use the same
+        self._model = policy_params['model_class'](model_config)
         # move model to correct device
         self._model.to(TorchUtils.get_device())
+        
         self.reset()
 
         # self._approximator = mu
         # self._predict_params = dict()
         # self._chol_sigma = torch.linalg.cholesky(sigma)
-        self._low = torch.as_tensor(self.config['low'])
-        self._high = torch.as_tensor(self.config['high'])
+        self._low = torch.as_tensor(policy_params['low'])
+        self._high = torch.as_tensor(policy_params['high'])
         self._draw_random_act = draw_random_act # unused for now
         self._draw_deterministic = draw_deterministic # unused for now
         self._squash_actions = policy_params['squash_actions']
@@ -83,9 +94,12 @@ class DiffusionPolicy(ParametricPolicy):
         self.debug_action_diffs = []
 
         self._add_save_attr(
-            # _model='mushroom',
-            # _predict_params='pickle',
-            # _chol_sigma='torch',
+            # _model='mushroom', # loaded separately with safetensors
+            _n_obs_steps='primitive',
+            _horizon='primitive',
+            _n_action_steps='primitive',
+            _image_features='primitive',
+            _env_state_feature='primitive',
             _low='torch',
             _high='torch',
             _draw_random_act='primitive',
@@ -101,6 +115,8 @@ class DiffusionPolicy(ParametricPolicy):
             debug_replay_actions='primitive',
             debug_replay_index='primitive',
             debug_action_diffs='primitive'
+            # _predict_params='pickle', # deprecated
+            # _chol_sigma='torch', # deprecated
         )
 
     def __call__(self, state, action=None, policy_state=None):
@@ -109,15 +125,15 @@ class DiffusionPolicy(ParametricPolicy):
     def reset(self):
         """Clear observation and action queues. Should be called on `env.reset()`"""
         self._queues = {
-            "observation.state": deque(maxlen=self.config['n_obs_steps']),
-            "action": deque(maxlen=self.config['n_action_steps']),
+            "observation.state": deque(maxlen=self._n_obs_steps),
+            "action": deque(maxlen=self._n_action_steps),
         }
-        if self.config['image_features']:
+        if self._image_features:
             raise NotImplementedError("Image features are not implemented yet")
-            self._queues["observation.images"] = deque(maxlen=self.config['n_obs_steps'])
-        if self.config['env_state_feature']:
+            self._queues["observation.images"] = deque(maxlen=self._n_obs_steps)
+        if self._env_state_feature:
             raise NotImplementedError("Environment state feature is not implemented yet")
-            self._queues["observation.environment_state"] = deque(maxlen=self.config['n_obs_steps'])
+            self._queues["observation.environment_state"] = deque(maxlen=self._n_obs_steps)
 
     @torch.no_grad()
     def select_action(self, batch: dict[str, Tensor]) -> Tensor:
@@ -142,11 +158,11 @@ class DiffusionPolicy(ParametricPolicy):
         actually measured from the first observation which (if `n_obs_steps` > 1) happened in the past.
         """
         # batch = self.normalize_inputs(batch) # Assuming inputs are normalized already if needed
-        if self.config['image_features']:
+        if self._image_features:
             raise NotImplementedError("Image features are not implemented yet")
             batch = dict(batch)  # shallow copy so that adding a key doesn't modify the original
             batch["observation.images"] = torch.stack(
-                [batch[key] for key in self.config['image_features']], dim=-4
+                [batch[key] for key in self._image_features], dim=-4
             )
         # Note: It's important that this happens after stacking the images into a single key.
         self._queues = populate_queues(self._queues, batch)
@@ -168,11 +184,11 @@ class DiffusionPolicy(ParametricPolicy):
     def forward(self, batch: dict[str, Tensor], squash_actions: bool) -> dict[str, Tensor]:
         """Run the batch through the model and compute the loss for training or validation."""
         # batch = self.normalize_inputs(batch) # Assuming inputs are normalized already if needed
-        if self.config['image_features']:
+        if self._image_features:
             raise NotImplementedError("Image features are not implemented yet")
             batch = dict(batch)  # shallow copy so that adding a key doesn't modify the original
             batch["observation.images"] = torch.stack(
-                [batch[key] for key in self.config['image_features']], dim=-4
+                [batch[key] for key in self._image_features], dim=-4
             )
         # batch = self.normalize_targets(batch)
         # TODO: check if action normalization/unnormalization is needed
@@ -272,6 +288,16 @@ class DiffusionPolicy(ParametricPolicy):
             action_clipped = torch.clip(action, self._low, self._high)
             
             return action_clipped, None
+    
+    def save_model(self, save_path: Path) -> None:
+        save_model_as_safetensor(self._model, str(save_path))
+
+    def load_model(self, model_config: dict, model_path: Path) -> None:
+        self._model = model_config['model_class'](model_config)
+        print(f"Loading safetensors from local directory {model_path}")
+        load_model_as_safetensor(self._model, model_path, strict=True, device=TorchUtils.get_device())
+        # explicitly move model to correct device # TODO: Check why we need this even though device has been set?
+        self._model.to(TorchUtils.get_device())
     
     def set_weights(self, weights):
         self._model.set_weights(weights)
